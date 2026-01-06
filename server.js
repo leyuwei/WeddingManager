@@ -506,11 +506,22 @@ const handleRequest = async (req, res) => {
   if (req.method === "GET" && pathname === "/lottery") {
     const store = loadStore();
     const session = getSession(req);
+    const winnersByPrize = store.winners.reduce((acc, winner) => {
+      acc[winner.prize_id] = (acc[winner.prize_id] || 0) + 1;
+      return acc;
+    }, {});
+    const prizes = store.prizes.map((prize) => {
+      const awarded = winnersByPrize[prize.id] || 0;
+      return {
+        ...prize,
+        remaining: Math.max(0, prize.quantity - awarded)
+      };
+    });
     sendResponse(
       res,
       200,
       renderLottery({
-        prizes: store.prizes,
+        prizes,
         isAdmin: Boolean(session),
         guests: store.guests.filter((guest) => guest.attending)
       })

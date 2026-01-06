@@ -664,9 +664,9 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
             ${prizes
               .map(
                 (prize) => `
-            <li data-id="${prize.id}">
+            <li data-id="${prize.id}" data-remaining="${prize.remaining}">
               <span>${escapeHtml(prize.name)}</span>
-              <small>剩余 ${prize.quantity}</small>
+              <small>剩余 ${prize.remaining}</small>
             </li>`
               )
               .join("")}
@@ -702,11 +702,31 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
       if (activePrize) {
         activePrize.classList.add("active");
       }
+
+      const updateDrawState = () => {
+        if (!drawBtn || !activePrize) return;
+        const remaining = Number(activePrize.dataset.remaining || 0);
+        if (remaining <= 0) {
+          drawBtn.disabled = true;
+          winnerTitle.textContent = "奖品已抽完";
+          winnerName.textContent = "请选择其他奖品";
+          rollingList.innerHTML = "";
+          rollingList?.classList.remove("active");
+          return;
+        }
+        drawBtn.disabled = false;
+        winnerTitle.textContent = "准备好了吗？";
+        winnerName.textContent = "等待抽取";
+        rollingList.innerHTML = "";
+        rollingList?.classList.remove("active");
+      };
+
       prizes.forEach((prize) => {
         prize.addEventListener("click", () => {
           prizes.forEach((item) => item.classList.remove("active"));
           prize.classList.add("active");
           activePrize = prize;
+          updateDrawState();
         });
       });
       const pickRandomName = () => {
@@ -746,12 +766,18 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
         winnerTitle.textContent = "幸运来宾";
       };
 
+      updateDrawState();
       if (drawBtn) {
         drawBtn.addEventListener("click", async () => {
           if (!activePrize || isDrawing) return;
           if (!guestNames.length) {
             winnerTitle.textContent = "暂无可抽取来宾";
             winnerName.textContent = "请先添加出席来宾";
+            return;
+          }
+          const remaining = Number(activePrize.dataset.remaining || 0);
+          if (remaining <= 0) {
+            updateDrawState();
             return;
           }
           isDrawing = true;
@@ -774,13 +800,27 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
               return;
             }
             winnerName.textContent = result.winner.name;
+            const nextRemaining = Math.max(0, remaining - 1);
+            activePrize.dataset.remaining = String(nextRemaining);
+            const badge = activePrize.querySelector("small");
+            if (badge) {
+              badge.textContent = \`剩余 \${nextRemaining}\`;
+            }
+            if (nextRemaining <= 0) {
+              winnerTitle.textContent = "奖品已抽完";
+            }
           } catch (error) {
             await minRollTime;
             stopRolling();
             winnerName.textContent = "抽奖失败，请重试";
           } finally {
             isDrawing = false;
-            drawBtn.disabled = false;
+            if (activePrize) {
+              const remaining = Number(activePrize.dataset.remaining || 0);
+              drawBtn.disabled = remaining <= 0;
+            } else {
+              drawBtn.disabled = false;
+            }
           }
         });
       }
