@@ -450,7 +450,7 @@ const renderSeatCards = (guests) =>
     `
 <section class="card">
   <h1>席位牌自动生成</h1>
-  <p>支持A4纸三折席位牌（折成三角柱），左右两面展示姓名。</p>
+  <p>支持A4横向三折席位牌（折成三角柱），每页仅打印一位来宾。</p>
   <div class="seat-actions">
     <button class="btn primary" type="button" onclick="window.print()">一键打印席位牌</button>
   </div>

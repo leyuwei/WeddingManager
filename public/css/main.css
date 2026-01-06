@@ -218,13 +218,13 @@ textarea {
 }
 
 .seat-name {
-  font-size: 22px;
+  font-size: 28px;
   font-weight: 700;
   margin: 10px 0;
 }
 
 .seat-note {
-  font-size: 12px;
+  font-size: 14px;
   color: #8a7c71;
 }
 
@@ -241,7 +241,7 @@ textarea {
 }
 
 .seat-panel-name .seat-name {
-  font-size: 24px;
+  font-size: 30px;
 }
 
 .seat-panel-center .seat-note {
@@ -256,8 +256,8 @@ textarea {
 
 @media print {
   @page {
-    size: A4 portrait;
-    margin: 8mm;
+    size: A4 landscape;
+    margin: 0;
   }
 
   body {
@@ -277,8 +277,7 @@ textarea {
   }
 
   .seat-grid {
-    grid-template-columns: 1fr;
-    gap: 0;
+    display: block;
     margin: 0;
   }
 
@@ -286,8 +285,10 @@ textarea {
     box-shadow: none;
     border-radius: 0;
     border: 1px solid #b8b0a6;
-    height: 90mm;
-    break-inside: avoid;
+    height: 210mm;
+    width: 297mm;
+    page-break-after: always;
+    break-after: page;
   }
 
   .seat-panel + .seat-panel {
@@ -295,11 +296,15 @@ textarea {
   }
 
   .seat-name {
-    font-size: 26px;
+    font-size: 36px;
   }
 
   .seat-note {
-    font-size: 12px;
+    font-size: 16px;
+  }
+
+  .seat-table {
+    font-size: 20px;
   }
 }
 
