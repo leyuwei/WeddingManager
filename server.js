@@ -506,15 +506,30 @@ const handleRequest = async (req, res) => {
   if (req.method === "GET" && pathname === "/lottery") {
     const store = loadStore();
     const session = getSession(req);
+    const attendingGuests = store.guests.filter((guest) => guest.attending);
     const winnersByPrize = store.winners.reduce((acc, winner) => {
       acc[winner.prize_id] = (acc[winner.prize_id] || 0) + 1;
       return acc;
     }, {});
+    const winnerGuestIdsByPrize = store.winners.reduce((acc, winner) => {
+      if (!acc[winner.prize_id]) {
+        acc[winner.prize_id] = new Set();
+      }
+      acc[winner.prize_id].add(winner.guest_id);
+      return acc;
+    }, {});
     const prizes = store.prizes.map((prize) => {
       const awarded = winnersByPrize[prize.id] || 0;
+      const winnerIds = winnerGuestIdsByPrize[prize.id] || new Set();
+      const eligibleCount = attendingGuests.filter(
+        (guest) => !winnerIds.has(guest.id)
+      ).length;
+      const availableByQuantity = Math.max(0, prize.quantity - awarded);
       return {
         ...prize,
-        remaining: Math.max(0, prize.quantity - awarded)
+        remaining: Math.max(0, Math.min(availableByQuantity, eligibleCount)),
+        winner_count: awarded,
+        eligible_count: eligibleCount
       };
     });
     sendResponse(
@@ -523,7 +538,7 @@ const handleRequest = async (req, res) => {
       renderLottery({
         prizes,
         isAdmin: Boolean(session),
-        guests: store.guests.filter((guest) => guest.attending)
+        guests: attendingGuests
       })
     );
     return;

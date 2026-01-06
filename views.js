@@ -664,7 +664,7 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
             ${prizes
               .map(
                 (prize) => `
-            <li data-id="${prize.id}" data-remaining="${prize.remaining}">
+            <li data-id="${prize.id}" data-remaining="${prize.remaining}" data-quantity="${prize.quantity}" data-winners="${prize.winner_count}">
               <span>${escapeHtml(prize.name)}</span>
               <small>剩余 ${prize.remaining}</small>
             </li>`
@@ -703,20 +703,34 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
         activePrize.classList.add("active");
       }
 
+      const getAvailabilityMessage = (remaining, quantity, winners) => {
+        if (quantity - winners <= 0) {
+          return {
+            title: "奖品已抽完",
+            name: "请选择其他奖品"
+          };
+        }
+        if (remaining <= 0) {
+          return {
+            title: "暂无可抽取来宾",
+            name: "请先新增出席来宾"
+          };
+        }
+        return {
+          title: "准备好了吗？",
+          name: "等待抽取"
+        };
+      };
+
       const updateDrawState = () => {
         if (!drawBtn || !activePrize) return;
         const remaining = Number(activePrize.dataset.remaining || 0);
-        if (remaining <= 0) {
-          drawBtn.disabled = true;
-          winnerTitle.textContent = "奖品已抽完";
-          winnerName.textContent = "请选择其他奖品";
-          rollingList.innerHTML = "";
-          rollingList?.classList.remove("active");
-          return;
-        }
-        drawBtn.disabled = false;
-        winnerTitle.textContent = "准备好了吗？";
-        winnerName.textContent = "等待抽取";
+        const quantity = Number(activePrize.dataset.quantity || 0);
+        const winners = Number(activePrize.dataset.winners || 0);
+        const message = getAvailabilityMessage(remaining, quantity, winners);
+        drawBtn.disabled = remaining <= 0;
+        winnerTitle.textContent = message.title;
+        winnerName.textContent = message.name;
         rollingList.innerHTML = "";
         rollingList?.classList.remove("active");
       };
@@ -763,6 +777,7 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
         winnerName.classList.remove("rolling");
         clearInterval(nameTimer);
         nameTimer = null;
+        rollingList.innerHTML = "";
         winnerTitle.textContent = "幸运来宾";
       };
 
@@ -776,6 +791,8 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
             return;
           }
           const remaining = Number(activePrize.dataset.remaining || 0);
+          const quantity = Number(activePrize.dataset.quantity || 0);
+          const winners = Number(activePrize.dataset.winners || 0);
           if (remaining <= 0) {
             updateDrawState();
             return;
@@ -801,13 +818,21 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
             }
             winnerName.textContent = result.winner.name;
             const nextRemaining = Math.max(0, remaining - 1);
+            const nextWinners = winners + 1;
             activePrize.dataset.remaining = String(nextRemaining);
+            activePrize.dataset.winners = String(nextWinners);
             const badge = activePrize.querySelector("small");
             if (badge) {
               badge.textContent = \`剩余 \${nextRemaining}\`;
             }
             if (nextRemaining <= 0) {
-              winnerTitle.textContent = "奖品已抽完";
+              const message = getAvailabilityMessage(
+                nextRemaining,
+                quantity,
+                nextWinners
+              );
+              winnerTitle.textContent = message.title;
+              winnerName.textContent = message.name;
             }
           } catch (error) {
             await minRollTime;
