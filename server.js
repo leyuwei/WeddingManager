@@ -569,7 +569,7 @@ const handleRequest = async (req, res) => {
 const createServer = () => http.createServer(handleRequest);
 
 if (require.main === module) {
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 11021;
   createServer().listen(port, () => {
     console.log(`Wedding Manager running on http://localhost:${port}`);
   });
