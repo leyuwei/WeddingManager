@@ -357,16 +357,35 @@ const handleRequest = async (req, res) => {
     const body = await parseBody(req);
     const store = loadStore();
     const id = Number(guestUpdateMatch[1]);
+    const responses = {};
+    store.invitation_fields.forEach((field) => {
+      responses[field.field_key] = body[field.field_key] || "";
+    });
     store.guests = store.guests.map((guest) =>
       guest.id === id
         ? {
             ...guest,
+            name: body.name || guest.name,
+            phone: body.phone || guest.phone,
             table_no: body.table_no || "",
             attending: Boolean(body.attending),
+            responses,
             updated_at: new Date().toISOString()
           }
         : guest
     );
+    saveStore(store);
+    redirect(res, "/admin/guests");
+    return;
+  }
+
+  const guestDeleteMatch = pathname.match(/^\/admin\/guests\/(\d+)\/delete$/);
+  if (req.method === "POST" && guestDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const id = Number(guestDeleteMatch[1]);
+    store.guests = store.guests.filter((guest) => guest.id !== id);
     saveStore(store);
     redirect(res, "/admin/guests");
     return;
@@ -490,7 +509,11 @@ const handleRequest = async (req, res) => {
     sendResponse(
       res,
       200,
-      renderLottery({ prizes: store.prizes, isAdmin: Boolean(session) })
+      renderLottery({
+        prizes: store.prizes,
+        isAdmin: Boolean(session),
+        guests: store.guests.filter((guest) => guest.attending)
+      })
     );
     return;
   }

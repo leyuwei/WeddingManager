@@ -336,7 +336,7 @@ const renderGuests = ({ guests, fields }) =>
 
 <section class="card">
   <h1>来宾信息统计</h1>
-  <p>点击来宾可更新席位与出席状态。</p>
+  <p>可直接编辑来宾信息并保存修改。</p>
   <table class="table">
     <thead>
       <tr>
@@ -345,7 +345,7 @@ const renderGuests = ({ guests, fields }) =>
         <th>出席</th>
         <th>席位号</th>
         <th>自定义信息</th>
-        <th>更新</th>
+        <th>操作</th>
       </tr>
     </thead>
     <tbody>
@@ -353,30 +353,86 @@ const renderGuests = ({ guests, fields }) =>
         .map(
           (guest) => `
       <tr>
-        <td>${escapeHtml(guest.name)}</td>
-        <td>${escapeHtml(guest.phone)}</td>
-        <td>${guest.attending ? "是" : "否"}</td>
-        <td>${escapeHtml(guest.table_no || "-")}</td>
         <td>
-          ${Object.keys(guest.responses || {})
-            .map(
-              (key) =>
-                `<div><strong>${escapeHtml(key)}:</strong> ${escapeHtml(
-                  guest.responses[key]
-                )}</div>`
-            )
-            .join("")}
+          <input type="text" name="name" value="${escapeHtml(
+            guest.name
+          )}" form="guest-form-${guest.id}" />
         </td>
         <td>
-          <form method="post" action="/admin/guests/${guest.id}/update" class="inline-form">
-            <input type="text" name="table_no" placeholder="桌号" />
-            <label class="inline">
-              <input type="checkbox" name="attending" ${
-                guest.attending ? "checked" : ""
-              } />
-              出席
-            </label>
+          <input type="tel" name="phone" value="${escapeHtml(
+            guest.phone
+          )}" form="guest-form-${guest.id}" />
+        </td>
+        <td>
+          <label class="inline">
+            <input type="checkbox" name="attending" ${
+              guest.attending ? "checked" : ""
+            } form="guest-form-${guest.id}" />
+            出席
+          </label>
+        </td>
+        <td>
+          <input type="text" name="table_no" value="${escapeHtml(
+            guest.table_no || ""
+          )}" placeholder="桌号" form="guest-form-${guest.id}" />
+        </td>
+        <td>
+          <div class="form-stack">
+            ${fields
+              .map((field) => {
+                const value =
+                  (guest.responses || {})[field.field_key] || "";
+                if (field.field_type === "textarea") {
+                  return `
+            <label>
+              ${escapeHtml(field.label)}
+              <textarea name="${escapeHtml(field.field_key)}" rows="2" form="guest-form-${guest.id}">${escapeHtml(
+                    value
+                  )}</textarea>
+            </label>`;
+                }
+                if (field.field_type === "select") {
+                  const options = (field.options || "")
+                    .split(",")
+                    .map((option) => option.trim())
+                    .filter(Boolean)
+                    .map((option) => {
+                      const escaped = escapeHtml(option);
+                      return `<option value="${escaped}" ${
+                        option === value ? "selected" : ""
+                      }>${escaped}</option>`;
+                    })
+                    .join("");
+                  return `
+            <label>
+              ${escapeHtml(field.label)}
+              <select name="${escapeHtml(
+                field.field_key
+              )}" form="guest-form-${guest.id}">
+                <option value="">请选择</option>
+                ${options}
+              </select>
+            </label>`;
+                }
+                return `
+            <label>
+              ${escapeHtml(field.label)}
+              <input type="text" name="${escapeHtml(
+                field.field_key
+              )}" value="${escapeHtml(value)}" form="guest-form-${guest.id}" />
+            </label>`;
+              })
+              .join("")}
+          </div>
+        </td>
+        <td>
+          <form method="post" action="/admin/guests/${
+            guest.id
+          }/update" class="inline-form" id="guest-form-${guest.id}">
             <button class="btn ghost" type="submit">保存</button>
+          </form>
+          <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
+            <button class="btn ghost" type="submit" onclick="return confirm('确认删除该来宾吗？');">删除</button>
           </form>
         </td>
       </tr>`
@@ -586,7 +642,7 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
 </html>
 `;
 
-const renderLottery = ({ prizes, isAdmin }) => `
+const renderLottery = ({ prizes, isAdmin, guests }) => `
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -617,8 +673,10 @@ const renderLottery = ({ prizes, isAdmin }) => `
           </ul>
         </div>
         <div class="lottery-display">
+          <div class="smoke-layer" aria-hidden="true"></div>
           <div class="winner-title">准备好了吗？</div>
           <div class="winner-name" id="winnerName">等待抽取</div>
+          <div class="rolling-list" id="rollingList" aria-live="polite"></div>
           ${
             isAdmin
               ? `<button class="btn glow" id="drawBtn">开始抽奖</button>`
@@ -630,7 +688,15 @@ const renderLottery = ({ prizes, isAdmin }) => `
     <script>
       const drawBtn = document.getElementById("drawBtn");
       const winnerName = document.getElementById("winnerName");
+      const winnerTitle = document.querySelector(".winner-title");
+      const rollingList = document.getElementById("rollingList");
+      const smokeLayer = document.querySelector(".smoke-layer");
       const prizes = document.querySelectorAll(".prize-selector li");
+      const guestNames = ${JSON.stringify(
+        (guests || []).map((guest) => guest.name).filter(Boolean)
+      )};
+      let rollingTimer;
+      let isDrawing = false;
       let activePrize = prizes[0];
       if (activePrize) {
         activePrize.classList.add("active");
@@ -642,23 +708,68 @@ const renderLottery = ({ prizes, isAdmin }) => `
           activePrize = prize;
         });
       });
+      const buildRollingList = () => {
+        if (!rollingList) return;
+        const pool = guestNames.length ? guestNames : ["等待来宾加入"];
+        const items = Array.from({ length: 18 }, () => {
+          return pool[Math.floor(Math.random() * pool.length)];
+        });
+        const loopItems = [...items, ...items];
+        rollingList.innerHTML = \`<ul>\${loopItems
+          .map((name) => \`<li>\${name}</li>\`)
+          .join("")}</ul>\`;
+      };
+
+      const startRolling = () => {
+        buildRollingList();
+        rollingList?.classList.add("active");
+        smokeLayer?.classList.add("active");
+        winnerTitle.textContent = "心跳时刻";
+        winnerName.textContent = "名单滚动中...";
+        winnerName.classList.add("rolling");
+        rollingTimer = setInterval(buildRollingList, 900);
+      };
+
+      const stopRolling = () => {
+        rollingList?.classList.remove("active");
+        smokeLayer?.classList.remove("active");
+        winnerName.classList.remove("rolling");
+        clearInterval(rollingTimer);
+        rollingTimer = null;
+        winnerTitle.textContent = "幸运来宾";
+      };
+
       if (drawBtn) {
         drawBtn.addEventListener("click", async () => {
-          if (!activePrize) return;
-          winnerName.classList.add("rolling");
-          winnerName.textContent = "抽取中...";
-          const response = await fetch("/lottery/draw", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prizeId: activePrize.dataset.id })
-          });
-          const result = await response.json();
-          winnerName.classList.remove("rolling");
-          if (!response.ok) {
-            winnerName.textContent = result.error || "抽奖失败";
-            return;
+          if (!activePrize || isDrawing) return;
+          isDrawing = true;
+          drawBtn.disabled = true;
+          startRolling();
+          const minRollTime = new Promise((resolve) =>
+            setTimeout(resolve, 3600)
+          );
+          try {
+            const response = await fetch("/lottery/draw", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prizeId: activePrize.dataset.id })
+            });
+            const result = await response.json();
+            await minRollTime;
+            stopRolling();
+            if (!response.ok) {
+              winnerName.textContent = result.error || "抽奖失败";
+              return;
+            }
+            winnerName.textContent = result.winner.name;
+          } catch (error) {
+            await minRollTime;
+            stopRolling();
+            winnerName.textContent = "抽奖失败，请重试";
+          } finally {
+            isDrawing = false;
+            drawBtn.disabled = false;
           }
-          winnerName.textContent = result.winner.name;
         });
       }
     </script>
