@@ -642,7 +642,27 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
 </html>
 `;
 
-const renderLottery = ({ prizes, isAdmin, guests }) => `
+const renderLottery = ({ prizes, isAdmin, guests, winners }) => {
+  const winnerGuestIds = new Set((winners || []).map((winner) => winner.guest_id));
+  const eligibleGuests = (guests || []).filter(
+    (guest) => !winnerGuestIds.has(guest.id)
+  );
+  const prizeSummaries = (prizes || []).map((prize) => {
+    const prizeWinners = (winners || []).filter(
+      (winner) => winner.prize_id === prize.id
+    );
+    const remaining = Math.max(prize.quantity - prizeWinners.length, 0);
+    return { ...prize, remaining };
+  });
+  const recentWinners = (winners || [])
+    .slice(-6)
+    .reverse()
+    .map((winner) => ({
+      ...winner,
+      prize_name: winner.prize_name || "",
+      guest_name: winner.guest_name || ""
+    }));
+  return `
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -653,36 +673,96 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
   </head>
   <body>
     <div class="lottery-screen">
-      <header>
-        <h1>幸运摇奖</h1>
-        <p>让幸福与欢呼一起绽放</p>
+      <header class="stage-header">
+        <div class="stage-title">璀璨幸运时刻</div>
+        <p>真实来宾参与，惊喜瞬间引爆全场欢呼</p>
       </header>
       <div class="lottery-panel">
-        <div class="prize-selector">
-          <h2>奖品列表</h2>
-          <ul>
-            ${prizes
-              .map(
-                (prize) => `
-            <li data-id="${prize.id}">
-              <span>${escapeHtml(prize.name)}</span>
-              <small>剩余 ${prize.quantity}</small>
+        <aside class="panel prize-panel">
+          <div class="panel-title">
+            <h2>奖品列表</h2>
+            <span>挑选当前奖项</span>
+          </div>
+          <ul class="prize-list">
+            ${
+              prizeSummaries.length
+                ? prizeSummaries
+                    .map(
+                      (prize) => `
+            <li data-id="${prize.id}" data-remaining="${prize.remaining}" class="${
+                        prize.remaining === 0 ? "disabled" : ""
+                      }">
+              <div class="prize-main">
+                <span>${escapeHtml(prize.name)}</span>
+                <small>剩余 ${prize.remaining}</small>
+              </div>
+              <div class="prize-status">${
+                prize.remaining === 0 ? "已抽完" : "正在抽取"
+              }</div>
             </li>`
-              )
-              .join("")}
+                    )
+                    .join("")
+                : `<li class="empty">暂无奖品，请在后台先配置</li>`
+            }
           </ul>
-        </div>
-        <div class="lottery-display">
-          <div class="smoke-layer" aria-hidden="true"></div>
-          <div class="winner-title">准备好了吗？</div>
-          <div class="winner-name" id="winnerName">等待抽取</div>
-          <div class="rolling-list" id="rollingList" aria-live="polite"></div>
-          ${
-            isAdmin
-              ? `<button class="btn glow" id="drawBtn">开始抽奖</button>`
-              : `<div class="hint">登录后台后即可开始抽奖</div>`
-          }
-        </div>
+        </aside>
+        <section class="panel draw-panel">
+          <div class="draw-effects">
+            <div class="pulse-ring"></div>
+            <div class="pulse-ring delay"></div>
+            <div class="pulse-ring delay-two"></div>
+          </div>
+          <div class="status-grid">
+            <div class="status-card">
+              <span>确认出席</span>
+              <strong id="attendingCount">${guests?.length || 0}</strong>
+            </div>
+            <div class="status-card highlight">
+              <span>待抽人数</span>
+              <strong id="eligibleCount">${eligibleGuests.length}</strong>
+            </div>
+            <div class="status-card">
+              <span>已开奖</span>
+              <strong id="awardedCount">${winners?.length || 0}</strong>
+            </div>
+          </div>
+          <div class="lottery-display">
+            <div class="smoke-layer" aria-hidden="true"></div>
+            <div class="countdown" id="countdown">3</div>
+            <div class="winner-title">心跳时刻</div>
+            <div class="winner-name" id="winnerName">等待抽取</div>
+            <div class="rolling-list" id="rollingList" aria-live="polite"></div>
+            <div class="action-bar">
+              ${
+                isAdmin
+                  ? `<button class="btn glow" id="drawBtn">开始摇奖</button>
+                <button class="btn ghost" id="resetBtn">重置名单</button>`
+                  : `<div class="hint">登录后台后即可开始抽奖</div>`
+              }
+            </div>
+          </div>
+          <div class="winner-feed">
+            <div class="panel-title">
+              <h3>最新揭晓</h3>
+              <span>喜悦瞬间</span>
+            </div>
+            <ul id="winnerFeed">
+              ${
+                recentWinners.length
+                  ? recentWinners
+                      .map(
+                        (winner) => `
+              <li>
+                <span>${escapeHtml(winner.guest_name || "-")}</span>
+                <small>${escapeHtml(winner.prize_name || "幸运奖")}</small>
+              </li>`
+                      )
+                      .join("")
+                  : `<li class="empty">等待幸运揭晓</li>`
+              }
+            </ul>
+          </div>
+        </section>
       </div>
     </div>
     <script>
@@ -691,22 +771,36 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
       const winnerTitle = document.querySelector(".winner-title");
       const rollingList = document.getElementById("rollingList");
       const smokeLayer = document.querySelector(".smoke-layer");
-      const prizes = document.querySelectorAll(".prize-selector li");
+      const prizes = document.querySelectorAll(".prize-list li");
+      const countdown = document.getElementById("countdown");
+      const eligibleCount = document.getElementById("eligibleCount");
+      const awardedCount = document.getElementById("awardedCount");
+      const winnerFeed = document.getElementById("winnerFeed");
+      const resetBtn = document.getElementById("resetBtn");
 
       const guestNames = ${JSON.stringify(
-        (guests || []).map((guest) => guest.name).filter(Boolean)
+        eligibleGuests.map((guest) => guest.name).filter(Boolean)
       )};
+      const totalAttending = ${guests?.length || 0};
       let rollingTimer;
       let isDrawing = false;
-      let activePrize = prizes[0];
-      if (activePrize) {
-        activePrize.classList.add("active");
+      let activePrize = null;
+
+      const setActivePrize = (prize) => {
+        if (!prize || prize.classList.contains("disabled")) return;
+        prizes.forEach((item) => item.classList.remove("active"));
+        prize.classList.add("active");
+        activePrize = prize;
+      };
+      const firstAvailable = Array.from(prizes).find(
+        (prize) => !prize.classList.contains("disabled")
+      );
+      if (firstAvailable) {
+        setActivePrize(firstAvailable);
       }
       prizes.forEach((prize) => {
         prize.addEventListener("click", () => {
-          prizes.forEach((item) => item.classList.remove("active"));
-          prize.classList.add("active");
-          activePrize = prize;
+          setActivePrize(prize);
         });
       });
       const buildRollingList = () => {
@@ -719,6 +813,31 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
         rollingList.innerHTML = \`<ul>\${loopItems
           .map((name) => \`<li>\${name}</li>\`)
           .join("")}</ul>\`;
+      };
+
+      const updateCounts = () => {
+        if (eligibleCount) eligibleCount.textContent = guestNames.length;
+        if (awardedCount)
+          awardedCount.textContent = totalAttending - guestNames.length;
+      };
+
+      const updatePrizeRemaining = (prize) => {
+        if (!prize) return;
+        const remaining = Number(prize.dataset.remaining || 0) - 1;
+        prize.dataset.remaining = remaining;
+        const remainingEl = prize.querySelector("small");
+        if (remainingEl) remainingEl.textContent = \`剩余 \${remaining}\`;
+        if (remaining <= 0) {
+          prize.classList.add("disabled");
+          const status = prize.querySelector(".prize-status");
+          if (status) status.textContent = "已抽完";
+          const nextAvailable = Array.from(prizes).find(
+            (item) => !item.classList.contains("disabled")
+          );
+          if (nextAvailable) {
+            setActivePrize(nextAvailable);
+          }
+        }
       };
 
       const startRolling = () => {
@@ -740,11 +859,37 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
         winnerTitle.textContent = "幸运来宾";
       };
 
+      const runCountdown = async () => {
+        if (!countdown) return;
+        countdown.classList.add("active");
+        for (const value of ["3", "2", "1"]) {
+          countdown.textContent = value;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        countdown.classList.remove("active");
+      };
+
+      const addWinnerFeed = (name, prizeName) => {
+        if (!winnerFeed) return;
+        if (winnerFeed.querySelector(".empty")) {
+          winnerFeed.innerHTML = "";
+        }
+        const item = document.createElement("li");
+        item.innerHTML = \`<span>\${name}</span><small>\${prizeName}</small>\`;
+        winnerFeed.prepend(item);
+      };
+
       if (drawBtn) {
         drawBtn.addEventListener("click", async () => {
           if (!activePrize || isDrawing) return;
+          if (Number(activePrize.dataset.remaining || 0) <= 0) return;
+          if (!guestNames.length) {
+            winnerName.textContent = "暂无可抽取来宾";
+            return;
+          }
           isDrawing = true;
           drawBtn.disabled = true;
+          await runCountdown();
           startRolling();
           const minRollTime = new Promise((resolve) =>
             setTimeout(resolve, 3600)
@@ -763,6 +908,16 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
               return;
             }
             winnerName.textContent = result.winner.name;
+            const winnerIndex = guestNames.indexOf(result.winner.name);
+            if (winnerIndex >= 0) {
+              guestNames.splice(winnerIndex, 1);
+            }
+            updateCounts();
+            updatePrizeRemaining(activePrize);
+            addWinnerFeed(
+              result.winner.name,
+              activePrize.querySelector("span")?.textContent || "幸运奖"
+            );
           } catch (error) {
             await minRollTime;
             stopRolling();
@@ -773,10 +928,32 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
           }
         });
       }
+
+      if (resetBtn) {
+        resetBtn.addEventListener("click", async () => {
+          if (!confirm("确认重置所有中奖名单？")) return;
+          try {
+            const response = await fetch("/lottery/reset", {
+              method: "POST"
+            });
+            if (!response.ok) {
+              const result = await response.json();
+              alert(result.error || "重置失败");
+              return;
+            }
+            location.reload();
+          } catch (error) {
+            alert("重置失败，请稍后再试");
+          }
+        });
+      }
+
+      updateCounts();
     </script>
   </body>
 </html>
 `;
+};
 
 module.exports = {
   renderLogin,
