@@ -506,15 +506,35 @@ const handleRequest = async (req, res) => {
   if (req.method === "GET" && pathname === "/lottery") {
     const store = loadStore();
     const session = getSession(req);
+    const winners = store.winners.map((winner) => {
+      const prize = store.prizes.find((item) => item.id === winner.prize_id);
+      const guest = store.guests.find((item) => item.id === winner.guest_id);
+      return {
+        ...winner,
+        prize_name: prize ? prize.name : "-",
+        guest_name: guest ? guest.name : "-"
+      };
+    });
     sendResponse(
       res,
       200,
       renderLottery({
         prizes: store.prizes,
         isAdmin: Boolean(session),
-        guests: store.guests.filter((guest) => guest.attending)
+        guests: store.guests.filter((guest) => guest.attending),
+        winners
       })
     );
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/lottery/reset") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    store.winners = [];
+    saveStore(store);
+    sendResponse(res, 200, JSON.stringify({ ok: true }), "application/json");
     return;
   }
 
@@ -541,9 +561,7 @@ const handleRequest = async (req, res) => {
     const eligible = store.guests.filter(
       (guest) =>
         guest.attending &&
-        !store.winners.some(
-          (winner) => winner.prize_id === prize.id && winner.guest_id === guest.id
-        )
+        !store.winners.some((winner) => winner.guest_id === guest.id)
     );
     if (eligible.length === 0) {
       sendResponse(res, 400, JSON.stringify({ error: "暂无可抽取来宾" }), "application/json");
