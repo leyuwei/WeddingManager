@@ -1,0 +1,12 @@
+{
+  "name": "wedding-manager",
+  "version": "1.0.0",
+  "description": "Wedding full-flow manager",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {}
+}
