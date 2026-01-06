@@ -509,7 +509,11 @@ const handleRequest = async (req, res) => {
     sendResponse(
       res,
       200,
-      renderLottery({ prizes: store.prizes, isAdmin: Boolean(session) })
+      renderLottery({
+        prizes: store.prizes,
+        isAdmin: Boolean(session),
+        guests: store.guests.filter((guest) => guest.attending)
+      })
     );
     return;
   }

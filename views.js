@@ -642,7 +642,7 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
 </html>
 `;
 
-const renderLottery = ({ prizes, isAdmin }) => `
+const renderLottery = ({ prizes, isAdmin, guests }) => `
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -692,8 +692,10 @@ const renderLottery = ({ prizes, isAdmin }) => `
       const rollingList = document.getElementById("rollingList");
       const smokeLayer = document.querySelector(".smoke-layer");
       const prizes = document.querySelectorAll(".prize-selector li");
-      const surnamePool = ["赵", "钱", "孙", "李", "周", "吴", "郑", "王", "冯", "陈", "褚", "卫", "蒋", "沈", "韩", "杨"];
-      const givenPool = ["晨", "瑶", "泽", "宇", "欣", "然", "婷", "浩", "轩", "婉", "航", "妍", "凯", "璇", "帆", "宁"];
+
+      const guestNames = ${JSON.stringify(
+        (guests || []).map((guest) => guest.name).filter(Boolean)
+      )};
       let rollingTimer;
       let isDrawing = false;
       let activePrize = prizes[0];
@@ -709,14 +711,12 @@ const renderLottery = ({ prizes, isAdmin }) => `
       });
       const buildRollingList = () => {
         if (!rollingList) return;
-        const items = Array.from({ length: 24 }, () => {
-          const surname =
-            surnamePool[Math.floor(Math.random() * surnamePool.length)];
-          const given =
-            givenPool[Math.floor(Math.random() * givenPool.length)];
-          return \`\${surname}\${given}\`;
+        const pool = guestNames.length ? guestNames : ["等待来宾加入"];
+        const items = Array.from({ length: 18 }, () => {
+          return pool[Math.floor(Math.random() * pool.length)];
         });
-        rollingList.innerHTML = \`<ul>\${items
+        const loopItems = [...items, ...items];
+        rollingList.innerHTML = \`<ul>\${loopItems
           .map((name) => \`<li>\${name}</li>\`)
           .join("")}</ul>\`;
       };
@@ -728,7 +728,7 @@ const renderLottery = ({ prizes, isAdmin }) => `
         winnerTitle.textContent = "心跳时刻";
         winnerName.textContent = "名单滚动中...";
         winnerName.classList.add("rolling");
-        rollingTimer = setInterval(buildRollingList, 800);
+        rollingTimer = setInterval(buildRollingList, 900);
       };
 
       const stopRolling = () => {
@@ -749,23 +749,28 @@ const renderLottery = ({ prizes, isAdmin }) => `
           const minRollTime = new Promise((resolve) =>
             setTimeout(resolve, 3600)
           );
-          const response = await fetch("/lottery/draw", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prizeId: activePrize.dataset.id })
-          });
-          const result = await response.json();
-          await minRollTime;
-          stopRolling();
-          if (!response.ok) {
-            winnerName.textContent = result.error || "抽奖失败";
+          try {
+            const response = await fetch("/lottery/draw", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prizeId: activePrize.dataset.id })
+            });
+            const result = await response.json();
+            await minRollTime;
+            stopRolling();
+            if (!response.ok) {
+              winnerName.textContent = result.error || "抽奖失败";
+              return;
+            }
+            winnerName.textContent = result.winner.name;
+          } catch (error) {
+            await minRollTime;
+            stopRolling();
+            winnerName.textContent = "抽奖失败，请重试";
+          } finally {
             isDrawing = false;
             drawBtn.disabled = false;
-            return;
           }
-          winnerName.textContent = result.winner.name;
-          isDrawing = false;
-          drawBtn.disabled = false;
         });
       }
     </script>
