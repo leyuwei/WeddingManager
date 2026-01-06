@@ -523,7 +523,10 @@ const handleRequest = async (req, res) => {
     if (!session) return;
     const body = await parseBody(req);
     const store = loadStore();
-    const prize = store.prizes.find((item) => String(item.id) === body.prizeId);
+    const prizeId = body.prizeId ?? body.prize_id;
+    const prize = store.prizes.find(
+      (item) => String(item.id) === String(prizeId)
+    );
     if (!prize) {
       sendResponse(res, 400, JSON.stringify({ error: "奖品不存在" }), "application/json");
       return;
