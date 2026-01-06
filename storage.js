@@ -6,7 +6,17 @@ const { hashPassword } = require("./password");
 const dataPath =
   process.env.DATA_PATH || path.join(__dirname, "data", "store.json");
 const dbPath = process.env.DB_PATH || path.join(__dirname, "data", "store.db");
-fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const dbDir = path.dirname(dbPath);
+try {
+  fs.mkdirSync(dbDir, { recursive: true });
+} catch (error) {
+  if (error.code !== "EEXIST" || !fs.existsSync(dbDir)) {
+    throw error;
+  }
+  if (!fs.statSync(dbDir).isDirectory()) {
+    throw error;
+  }
+}
 
 const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
