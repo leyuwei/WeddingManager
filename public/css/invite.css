@@ -1,0 +1,142 @@
+@import url("https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playfair+Display:wght@400;600&family=Inter:wght@400;600&display=swap");
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", "PingFang SC", sans-serif;
+  background: #fdf7f9;
+  color: #2f2a26;
+}
+
+.invite {
+  scroll-snap-type: y mandatory;
+  overflow-y: auto;
+  height: 100vh;
+}
+
+.hero {
+  min-height: 100vh;
+  background-image: url("https://images.unsplash.com/photo-1505489304219-85ce17010209?q=80&w=1600&auto=format&fit=crop");
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: flex-end;
+  scroll-snap-align: start;
+}
+
+.hero-overlay {
+  width: 100%;
+  padding: 48px 24px 80px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 10%, rgba(0, 0, 0, 0.6));
+  color: white;
+  text-align: center;
+}
+
+.hero-overlay h1 {
+  font-family: "Great Vibes", cursive;
+  font-size: 54px;
+  margin-bottom: 8px;
+}
+
+.hero-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+}
+
+.story {
+  min-height: 100vh;
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  scroll-snap-align: start;
+}
+
+.story-card {
+  background: rgba(255, 255, 255, 0.88);
+  padding: 32px;
+  border-radius: 24px;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.story-card h2 {
+  font-family: "Playfair Display", serif;
+  margin-bottom: 12px;
+}
+
+.rsvp {
+  min-height: 100vh;
+  background: linear-gradient(120deg, #fff1f6, #f2f4ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  scroll-snap-align: start;
+}
+
+.rsvp-card {
+  background: white;
+  padding: 32px;
+  border-radius: 24px;
+  width: min(520px, 100%);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08);
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+label {
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+input,
+select,
+textarea {
+  border: 1px solid #e3dcd5;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.btn.primary {
+  background: #2f2a26;
+  color: white;
+  border: none;
+  padding: 12px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.success {
+  background: #e8fff0;
+  color: #2b7a4b;
+  padding: 10px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.inline {
+  flex-direction: row;
+  gap: 10px;
+  align-items: center;
+}
