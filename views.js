@@ -692,6 +692,7 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
       const rollingList = document.getElementById("rollingList");
       const smokeLayer = document.querySelector(".smoke-layer");
       const prizes = document.querySelectorAll(".prize-selector li");
+
       const guestNames = ${JSON.stringify(
         (guests || []).map((guest) => guest.name).filter(Boolean)
       )};
