@@ -450,16 +450,26 @@ const renderSeatCards = (guests) =>
     `
 <section class="card">
   <h1>席位牌自动生成</h1>
-  <p>建议打印时使用浏览器打印功能。</p>
+  <p>支持A4纸三折席位牌（折成三角柱），左右两面展示姓名。</p>
+  <div class="seat-actions">
+    <button class="btn primary" type="button" onclick="window.print()">一键打印席位牌</button>
+  </div>
 </section>
 <section class="seat-grid">
   ${guests
     .map(
       (guest) => `
   <div class="seat-card">
-    <div class="seat-table">桌号 ${escapeHtml(guest.table_no || "未分配")}</div>
-    <div class="seat-name">${escapeHtml(guest.name)}</div>
-    <div class="seat-note">欢迎出席我们的婚礼</div>
+    <div class="seat-panel seat-panel-name">
+      <div class="seat-name">${escapeHtml(guest.name)}</div>
+    </div>
+    <div class="seat-panel seat-panel-center">
+      <div class="seat-table">桌号 ${escapeHtml(guest.table_no || "未分配")}</div>
+      <div class="seat-note">欢迎出席我们的婚礼</div>
+    </div>
+    <div class="seat-panel seat-panel-name">
+      <div class="seat-name">${escapeHtml(guest.name)}</div>
+    </div>
   </div>`
     )
     .join("")}
