@@ -82,8 +82,10 @@ const redirect = (res, location) => {
 };
 
 const serveStatic = (req, res, pathname) => {
-  const filePath = path.join(__dirname, pathname);
-  if (!filePath.startsWith(path.join(__dirname, "public"))) {
+  const publicRoot = path.join(__dirname, "public");
+  const relativePath = pathname.replace(/^\/+/, "");
+  const filePath = path.normalize(path.join(publicRoot, relativePath));
+  if (!filePath.startsWith(publicRoot)) {
     sendResponse(res, 403, "Forbidden", "text/plain");
     return true;
   }
@@ -118,7 +120,7 @@ const requireAdmin = (req, res) => {
 
 const handleRequest = async (req, res) => {
   const url = new URL(req.url, "http://localhost");
-  const pathname = url.pathname;
+  const pathname = url.pathname.replace(/\/+$/, "") || "/";
 
   if (pathname.startsWith("/public/")) {
     serveStatic(req, res, pathname);
@@ -523,7 +525,10 @@ const handleRequest = async (req, res) => {
     if (!session) return;
     const body = await parseBody(req);
     const store = loadStore();
-    const prize = store.prizes.find((item) => String(item.id) === body.prizeId);
+    const prizeId = body.prizeId ?? body.prize_id;
+    const prize = store.prizes.find(
+      (item) => String(item.id) === String(prizeId)
+    );
     if (!prize) {
       sendResponse(res, 400, JSON.stringify({ error: "奖品不存在" }), "application/json");
       return;
