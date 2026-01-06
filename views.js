@@ -696,7 +696,7 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
       const guestNames = ${JSON.stringify(
         (guests || []).map((guest) => guest.name).filter(Boolean)
       )};
-      let rollingTimer;
+      let nameTimer;
       let isDrawing = false;
       let activePrize = prizes[0];
       if (activePrize) {
@@ -709,11 +709,15 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
           activePrize = prize;
         });
       });
+      const pickRandomName = () => {
+        if (!guestNames.length) return "等待来宾加入";
+        return guestNames[Math.floor(Math.random() * guestNames.length)];
+      };
+
       const buildRollingList = () => {
         if (!rollingList) return;
-        const pool = guestNames.length ? guestNames : ["等待来宾加入"];
         const items = Array.from({ length: 18 }, () => {
-          return pool[Math.floor(Math.random() * pool.length)];
+          return pickRandomName();
         });
         const loopItems = [...items, ...items];
         rollingList.innerHTML = \`<ul>\${loopItems
@@ -726,23 +730,30 @@ const renderLottery = ({ prizes, isAdmin, guests }) => `
         rollingList?.classList.add("active");
         smokeLayer?.classList.add("active");
         winnerTitle.textContent = "心跳时刻";
-        winnerName.textContent = "名单滚动中...";
+        winnerName.textContent = pickRandomName();
         winnerName.classList.add("rolling");
-        rollingTimer = setInterval(buildRollingList, 900);
+        nameTimer = setInterval(() => {
+          winnerName.textContent = pickRandomName();
+        }, 140);
       };
 
       const stopRolling = () => {
         rollingList?.classList.remove("active");
         smokeLayer?.classList.remove("active");
         winnerName.classList.remove("rolling");
-        clearInterval(rollingTimer);
-        rollingTimer = null;
+        clearInterval(nameTimer);
+        nameTimer = null;
         winnerTitle.textContent = "幸运来宾";
       };
 
       if (drawBtn) {
         drawBtn.addEventListener("click", async () => {
           if (!activePrize || isDrawing) return;
+          if (!guestNames.length) {
+            winnerTitle.textContent = "暂无可抽取来宾";
+            winnerName.textContent = "请先添加出席来宾";
+            return;
+          }
           isDrawing = true;
           drawBtn.disabled = true;
           startRolling();
