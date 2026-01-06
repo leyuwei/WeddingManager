@@ -264,10 +264,76 @@ const renderInvitation = ({ settings, sections, fields }) =>
 `
   );
 
-const renderGuests = (guests) =>
+const renderGuests = ({ guests, fields }) =>
   adminLayout(
     "来宾管理",
     `
+<section class="card">
+  <h1>手动新增来宾</h1>
+  <form method="post" action="/admin/guests" class="form-grid">
+    <label>
+      姓名
+      <input type="text" name="name" required />
+    </label>
+    <label>
+      手机号
+      <input type="tel" name="phone" required />
+    </label>
+    <label>
+      席位号
+      <input type="text" name="table_no" placeholder="可选" />
+    </label>
+    <label class="inline">
+      <input type="checkbox" name="attending" checked />
+      出席
+    </label>
+    ${fields
+      .map((field) => {
+        if (field.field_type === "textarea") {
+          return `
+    <label class="full">
+      ${escapeHtml(field.label)}
+      <textarea name="${escapeHtml(field.field_key)}" rows="2" ${
+            field.required ? "required" : ""
+          }></textarea>
+    </label>`;
+        }
+        if (field.field_type === "select") {
+          const options = (field.options || "")
+            .split(",")
+            .map((option) => option.trim())
+            .filter(Boolean)
+            .map(
+              (option) =>
+                `<option value="${escapeHtml(option)}">${escapeHtml(
+                  option
+                )}</option>`
+            )
+            .join("");
+          return `
+    <label>
+      ${escapeHtml(field.label)}
+      <select name="${escapeHtml(field.field_key)}" ${
+            field.required ? "required" : ""
+          }>
+        <option value="">请选择</option>
+        ${options}
+      </select>
+    </label>`;
+        }
+        return `
+    <label>
+      ${escapeHtml(field.label)}
+      <input type="text" name="${escapeHtml(field.field_key)}" ${
+          field.required ? "required" : ""
+        } />
+    </label>`;
+      })
+      .join("")}
+    <button class="btn primary" type="submit">新增来宾</button>
+  </form>
+</section>
+
 <section class="card">
   <h1>来宾信息统计</h1>
   <p>点击来宾可更新席位与出席状态。</p>

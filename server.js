@@ -306,7 +306,47 @@ const handleRequest = async (req, res) => {
       ...guest,
       responses: guest.responses || {}
     }));
-    sendResponse(res, 200, renderGuests(guests));
+    sendResponse(
+      res,
+      200,
+      renderGuests({ guests, fields: store.invitation_fields })
+    );
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/guests") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    if (!body.name || !body.phone) {
+      redirect(res, "/admin/guests");
+      return;
+    }
+    const store = loadStore();
+    const responses = {};
+    store.invitation_fields.forEach((field) => {
+      responses[field.field_key] = body[field.field_key] || "";
+    });
+    const existing = store.guests.find((guest) => guest.phone === body.phone);
+    if (existing) {
+      existing.name = body.name;
+      existing.attending = Boolean(body.attending);
+      existing.table_no = body.table_no || "";
+      existing.responses = responses;
+      existing.updated_at = new Date().toISOString();
+    } else {
+      store.guests.push({
+        id: nextId(store, "guests"),
+        name: body.name,
+        phone: body.phone,
+        attending: Boolean(body.attending),
+        responses,
+        table_no: body.table_no || "",
+        updated_at: new Date().toISOString()
+      });
+    }
+    saveStore(store);
+    redirect(res, "/admin/guests");
     return;
   }
 
