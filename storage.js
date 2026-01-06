@@ -1,9 +1,25 @@
 const fs = require("fs");
 const path = require("path");
+const Database = require("better-sqlite3");
 const { hashPassword } = require("./password");
 
 const dataPath =
   process.env.DATA_PATH || path.join(__dirname, "data", "store.json");
+const dbPath = process.env.DB_PATH || path.join(__dirname, "data", "store.db");
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+const db = new Database(dbPath);
+db.pragma("journal_mode = WAL");
+db.exec(
+  "CREATE TABLE IF NOT EXISTS store (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+);
+
+const readAllRows = () =>
+  db.prepare("SELECT key, value FROM store").all();
+
+const upsertRow = db.prepare(
+  "INSERT INTO store (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+);
 
 const defaultStore = () => ({
   admins: [],
@@ -17,20 +33,31 @@ const defaultStore = () => ({
 });
 
 const loadStore = () => {
-  if (!fs.existsSync(dataPath)) {
-    fs.mkdirSync(path.dirname(dataPath), { recursive: true });
-    const store = seedStore(defaultStore());
-    saveStore(store);
-    return store;
+  const rows = readAllRows();
+  let store = defaultStore();
+
+  if (rows.length > 0) {
+    rows.forEach((row) => {
+      store[row.key] = JSON.parse(row.value);
+    });
+  } else if (fs.existsSync(dataPath)) {
+    const raw = fs.readFileSync(dataPath, "utf-8");
+    const legacyStore = raw ? JSON.parse(raw) : {};
+    store = { ...store, ...legacyStore };
   }
-  const raw = fs.readFileSync(dataPath, "utf-8");
-  const store = raw ? JSON.parse(raw) : defaultStore();
-  return seedStore(store);
+
+  store = seedStore(store);
+  saveStore(store);
+  return store;
 };
 
 const saveStore = (store) => {
-  fs.mkdirSync(path.dirname(dataPath), { recursive: true });
-  fs.writeFileSync(dataPath, JSON.stringify(store, null, 2));
+  const transaction = db.transaction((payload) => {
+    Object.entries(payload).forEach(([key, value]) => {
+      upsertRow.run(key, JSON.stringify(value));
+    });
+  });
+  transaction(store);
 };
 
 const nextId = (store, key) => {
@@ -117,4 +144,4 @@ const seedStore = (store) => {
   return store;
 };
 
-module.exports = { loadStore, saveStore, nextId, dataPath };
+module.exports = { loadStore, saveStore, nextId, dataPath, dbPath };
