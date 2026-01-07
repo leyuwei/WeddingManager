@@ -210,6 +210,7 @@ textarea {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   overflow: hidden;
   min-height: 140px;
+  cursor: pointer;
 }
 
 .seat-table {
@@ -289,6 +290,14 @@ textarea {
     width: 297mm;
     page-break-after: always;
     break-after: page;
+  }
+
+  body.print-single .seat-card {
+    display: none;
+  }
+
+  body.print-single .seat-card.seat-card-print {
+    display: grid;
   }
 
   .seat-panel + .seat-panel {
