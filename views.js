@@ -16,11 +16,17 @@ const getAttendeeLabel = (guest) => {
   return normalized;
 };
 
+const getCompanionLabel = (guest) => {
+  const attendeeLabel = getAttendeeLabel(guest);
+  if (!attendeeLabel) return null;
+  return `携亲朋${attendeeLabel}位`;
+};
+
 const formatGuestDisplayName = (guest) => {
   const name = guest?.name || "";
-  const attendeeLabel = getAttendeeLabel(guest);
-  if (!attendeeLabel) return name;
-  return `${name}携亲朋${attendeeLabel}位`;
+  const companionLabel = getCompanionLabel(guest);
+  if (!companionLabel) return name;
+  return `${name} ${companionLabel}`;
 };
 
 const adminLayout = (title, body) => `
@@ -375,7 +381,7 @@ const renderGuests = ({ guests, fields }) =>
             guest.name
           )}" form="guest-form-${guest.id}" />
           ${
-            getAttendeeLabel(guest)
+            getCompanionLabel(guest)
               ? `<div class="muted">显示：${escapeHtml(
                   formatGuestDisplayName(guest)
                 )}</div>`
@@ -485,18 +491,28 @@ const renderSeatCards = (guests) =>
       (guest) => `
   <div class="seat-card">
     <div class="seat-panel seat-panel-name">
-      <div class="seat-name">${escapeHtml(
-        formatGuestDisplayName(guest)
-      )}</div>
+      <div class="seat-name">${escapeHtml(guest.name)}</div>
+      ${
+        getCompanionLabel(guest)
+          ? `<div class="seat-name">${escapeHtml(
+              getCompanionLabel(guest)
+            )}</div>`
+          : ""
+      }
     </div>
     <div class="seat-panel seat-panel-center">
       <div class="seat-table">桌号 ${escapeHtml(guest.table_no || "未分配")}</div>
       <div class="seat-note">欢迎出席我们的婚礼</div>
     </div>
     <div class="seat-panel seat-panel-name">
-      <div class="seat-name">${escapeHtml(
-        formatGuestDisplayName(guest)
-      )}</div>
+      <div class="seat-name">${escapeHtml(guest.name)}</div>
+      ${
+        getCompanionLabel(guest)
+          ? `<div class="seat-name">${escapeHtml(
+              getCompanionLabel(guest)
+            )}</div>`
+          : ""
+      }
     </div>
   </div>`
     )

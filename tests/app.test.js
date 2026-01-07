@@ -71,11 +71,12 @@ test("shows formatted guest name for multiple attendees in lists and seat cards"
     headers: { cookie }
   });
   const guestListText = await guestListResponse.text();
-  assert.ok(guestListText.includes("王小明携亲朋3位"));
+  assert.ok(guestListText.includes("王小明 携亲朋3位"));
 
   const seatCardsResponse = await fetch(`${baseUrl}/admin/seat-cards`, {
     headers: { cookie }
   });
   const seatCardsText = await seatCardsResponse.text();
-  assert.ok(seatCardsText.includes("王小明携亲朋3位"));
+  assert.ok(seatCardsText.includes("王小明"));
+  assert.ok(seatCardsText.includes("携亲朋3位"));
 });
