@@ -337,6 +337,12 @@ textarea {
   background: #fff3f0;
 }
 
+.field-error {
+  margin-top: 6px;
+  color: #b94949;
+  font-size: 12px;
+}
+
 .print-body {
   background: #f7f5f2;
   padding: 24px;

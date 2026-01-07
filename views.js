@@ -289,7 +289,7 @@ const renderInvitation = ({ settings, sections, fields }) =>
 `
   );
 
-const renderGuests = ({ guests, fields, tables, error }) => {
+const renderGuests = ({ guests, fields, tables, error, errorGuestId }) => {
   const tableList = tables || [];
   const getGuestPartySize = (guest) => {
     const rawValue = guest?.responses?.attendees;
@@ -555,6 +555,8 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
           const tableNo = String(guest.table_no || "").trim();
           const hasValidTable = tableNo && tableNos.has(tableNo);
           const rowClass = hasValidTable ? "" : ' class="guest-row-alert"';
+          const isErrorGuest =
+            error && Number(errorGuestId) === Number(guest.id);
           return `
       <tr${rowClass} id="guest-${guest.id}">
         <td>
@@ -598,6 +600,11 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
               })
               .join("")}
           </select>
+          ${
+            isErrorGuest
+              ? `<div class="field-error">${escapeHtml(error)}</div>`
+              : ""
+          }
         </td>
         <td>
           <div class="form-stack">

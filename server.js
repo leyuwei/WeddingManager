@@ -375,6 +375,7 @@ const handleRequest = async (req, res) => {
     if (!session) return;
     const store = loadStore();
     const error = url.searchParams.get("error");
+    const errorGuestId = url.searchParams.get("error_guest");
     const guests = store.guests.map((guest) => ({
       ...guest,
       responses: guest.responses || {}
@@ -386,7 +387,8 @@ const handleRequest = async (req, res) => {
         guests,
         fields: store.invitation_fields,
         tables: sortTables(store.tables),
-        error
+        error,
+        errorGuestId
       })
     );
     return;
@@ -472,7 +474,10 @@ const handleRequest = async (req, res) => {
           );
           const returnTo = (body.return_to || "").trim();
           const hash = returnTo ? `#${encodeURIComponent(returnTo)}` : "";
-          redirect(res, `/admin/guests?error=${message}${hash}`);
+          redirect(
+            res,
+            `/admin/guests?error=${message}&error_guest=${id}${hash}`
+          );
           return;
         }
       }
