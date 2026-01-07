@@ -2,8 +2,10 @@ const assert = require("assert");
 const { test, before, after } = require("node:test");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 
 process.env.DATA_PATH = path.join(__dirname, "../data/test-store.json");
+process.env.DB_PATH = path.join(os.tmpdir(), "weddingmanager-test.db");
 
 const { createServer } = require("../server");
 
@@ -23,6 +25,9 @@ after(() => {
   server.close();
   if (fs.existsSync(process.env.DATA_PATH)) {
     fs.unlinkSync(process.env.DATA_PATH);
+  }
+  if (fs.existsSync(process.env.DB_PATH)) {
+    fs.unlinkSync(process.env.DB_PATH);
   }
 });
 
@@ -79,4 +84,65 @@ test("shows formatted guest name for multiple attendees in lists and seat cards"
   const seatCardsText = await seatCardsResponse.text();
   assert.ok(seatCardsText.includes("王小明"));
   assert.ok(seatCardsText.includes("携亲朋3位"));
+});
+
+test("warns when check-in guest is not in the registered list", async () => {
+  const response = await fetch(`${baseUrl}/checkin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "未登记来宾",
+      phone: "13900000001",
+      confirm_attending: "on",
+      actual_attendees: "1"
+    })
+  });
+  const text = await response.text();
+  assert.strictEqual(response.status, 200);
+  assert.ok(text.includes("未在请柬登记名单中出现"));
+});
+
+test("warns when name matches but phone differs on check-in", async () => {
+  const rsvpResponse = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "李四",
+      phone: "13800000001",
+      attending: "on"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(rsvpResponse.status, 302);
+
+  const response = await fetch(`${baseUrl}/checkin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "李四",
+      phone: "13800000002",
+      confirm_attending: "on",
+      actual_attendees: "1"
+    })
+  });
+  const text = await response.text();
+  assert.strictEqual(response.status, 200);
+  assert.ok(text.includes("手机号不一致"));
+});
+
+test("allows forcing new guest creation after check-in warning", async () => {
+  const response = await fetch(`${baseUrl}/checkin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "临时来宾",
+      phone: "13900000003",
+      confirm_attending: "on",
+      actual_attendees: "2",
+      force_new: "1"
+    })
+  });
+  const text = await response.text();
+  assert.strictEqual(response.status, 200);
+  assert.ok(text.includes("签到成功"));
 });

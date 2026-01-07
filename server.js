@@ -12,8 +12,10 @@ const {
   renderInvitation,
   renderGuests,
   renderSeatCards,
+  renderAdminCheckins,
   renderAdminLottery,
   renderInvite,
+  renderCheckin,
   renderLottery
 } = require("./views");
 
@@ -114,6 +116,38 @@ const requireAdmin = (req, res) => {
     return null;
   }
   return session;
+};
+
+const getCheckedInGuests = (store) => {
+  const checkinMap = new Map(
+    (store.checkins || []).map((checkin) => [checkin.guest_id, checkin])
+  );
+  const checkedInGuests = (store.guests || [])
+    .filter((guest) => checkinMap.has(guest.id))
+    .map((guest) => ({ ...guest, checkin: checkinMap.get(guest.id) }));
+  const pendingGuests = (store.guests || []).filter(
+    (guest) => !checkinMap.has(guest.id)
+  );
+  return { checkedInGuests, pendingGuests, checkinMap };
+};
+
+const upsertCheckin = (store, guestId, actualAttendees) => {
+  store.checkins = store.checkins || [];
+  const existing = store.checkins.find(
+    (checkin) => checkin.guest_id === guestId
+  );
+  const payload = {
+    guest_id: guestId,
+    actual_attendees: actualAttendees,
+    checked_in_at: new Date().toISOString()
+  };
+  if (existing) {
+    Object.assign(existing, payload);
+    return existing;
+  }
+  const record = { id: nextId(store, "checkins"), ...payload };
+  store.checkins.push(record);
+  return record;
 };
 
 const handleRequest = async (req, res) => {
@@ -391,6 +425,75 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && pathname === "/admin/checkins") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const { checkedInGuests, pendingGuests } = getCheckedInGuests(store);
+    const proto = req.headers["x-forwarded-proto"] || "http";
+    const host = req.headers.host || "localhost";
+    const checkinUrl = `${proto}://${host}/checkin`;
+    sendResponse(
+      res,
+      200,
+      renderAdminCheckins({
+        checkinUrl,
+        totalGuests: store.guests.length,
+        checkedInCount: checkedInGuests.length,
+        checkedInGuests,
+        pendingGuests
+      })
+    );
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/checkins/manual") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const name = (body.name || "").trim();
+    const phone = (body.phone || "").trim();
+    const tableNo = (body.table_no || "").trim();
+    const actualAttendees = Math.max(
+      Number.parseInt(body.actual_attendees, 10) || 1,
+      1
+    );
+    if (!name) {
+      redirect(res, "/admin/checkins");
+      return;
+    }
+    const store = loadStore();
+    let guest = null;
+    if (phone) {
+      guest = store.guests.find((item) => item.phone === phone);
+    }
+    if (!guest) {
+      guest = store.guests.find((item) => item.name === name);
+    }
+    if (guest) {
+      guest.name = name || guest.name;
+      if (phone) guest.phone = phone;
+      if (tableNo) guest.table_no = tableNo;
+      guest.attending = true;
+      guest.updated_at = new Date().toISOString();
+    } else {
+      guest = {
+        id: nextId(store, "guests"),
+        name,
+        phone,
+        attending: true,
+        responses: {},
+        table_no: tableNo,
+        updated_at: new Date().toISOString()
+      };
+      store.guests.push(guest);
+    }
+    upsertCheckin(store, guest.id, actualAttendees);
+    saveStore(store);
+    redirect(res, "/admin/checkins");
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/admin/seat-cards") {
     const session = requireAdmin(req, res);
     if (!session) return;
@@ -470,6 +573,151 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && pathname === "/checkin") {
+    const store = loadStore();
+    sendResponse(
+      res,
+      200,
+      renderCheckin({
+        settings: store.settings,
+        error: null,
+        result: null,
+        prompt: null,
+        formValues: {}
+      })
+    );
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/checkin") {
+    const body = await parseBody(req);
+    const nameInput = (body.name || "").trim();
+    const phoneInput = (body.phone || "").trim();
+    const confirmAttending = Boolean(body.confirm_attending);
+    const forceNew = body.force_new === "1";
+    const actualAttendees = Math.max(
+      Number.parseInt(body.actual_attendees, 10) || 1,
+      1
+    );
+    const store = loadStore();
+    const formValues = {
+      name: nameInput,
+      phone: phoneInput,
+      actual_attendees: String(actualAttendees),
+      confirm_attending: confirmAttending
+    };
+    if (!nameInput && !phoneInput) {
+      sendResponse(
+        res,
+        200,
+        renderCheckin({
+          settings: store.settings,
+          error: "请填写姓名或手机号后再签到。",
+          result: null,
+          prompt: null,
+          formValues
+        })
+      );
+      return;
+    }
+    if (!confirmAttending) {
+      sendResponse(
+        res,
+        200,
+        renderCheckin({
+          settings: store.settings,
+          error: "请确认到场出席状态。",
+          result: null,
+          prompt: null,
+          formValues
+        })
+      );
+      return;
+    }
+    const nameMatches = nameInput
+      ? store.guests.filter((item) => item.name === nameInput)
+      : [];
+    const phoneMatches = phoneInput
+      ? store.guests.filter((item) => item.phone === phoneInput)
+      : [];
+    let guest = null;
+    if (nameInput && phoneInput) {
+      guest = store.guests.find(
+        (item) => item.name === nameInput && item.phone === phoneInput
+      );
+    } else if (phoneInput) {
+      guest = phoneMatches[0] || null;
+    } else if (nameInput) {
+      guest = nameMatches[0] || null;
+    }
+    if (!guest && !forceNew) {
+      let message = "未在请柬登记名单中出现，是否填写错误？是否之前由其他亲朋代为登记过？";
+      if (nameInput && phoneInput) {
+        if (nameMatches.length && !phoneMatches.length) {
+          message = "姓名匹配到登记名单，但手机号不一致，请确认是否输入错误。";
+        } else if (phoneMatches.length && !nameMatches.length) {
+          message = "手机号匹配到登记名单，但姓名不一致，请确认是否输入错误。";
+        } else if (nameMatches.length && phoneMatches.length) {
+          message = "姓名与手机号分别匹配到不同来宾，请确认是否输入错误。";
+        }
+      } else if (nameMatches.length > 1) {
+        message = "存在多位同名来宾，请补充手机号以确认身份。";
+      } else if (phoneMatches.length > 1) {
+        message = "该手机号匹配到多位来宾，请联系工作人员确认。";
+      } else if (nameMatches.length === 1 || phoneMatches.length === 1) {
+        message = "仅找到部分匹配信息，请确认是否输入错误。";
+      }
+      sendResponse(
+        res,
+        200,
+        renderCheckin({
+          settings: store.settings,
+          error: null,
+          result: null,
+          prompt: { message },
+          formValues
+        })
+      );
+      return;
+    }
+    if (guest) {
+      if (nameInput) guest.name = nameInput;
+      if (phoneInput) guest.phone = phoneInput;
+      guest.attending = true;
+      guest.updated_at = new Date().toISOString();
+    } else {
+      const fallbackName = nameInput || phoneInput || "来宾";
+      guest = {
+        id: nextId(store, "guests"),
+        name: fallbackName,
+        phone: phoneInput,
+        attending: true,
+        responses: {},
+        table_no: "",
+        updated_at: new Date().toISOString()
+      };
+      store.guests.push(guest);
+    }
+    upsertCheckin(store, guest.id, actualAttendees);
+    saveStore(store);
+    sendResponse(
+      res,
+      200,
+      renderCheckin({
+        settings: store.settings,
+        error: null,
+        result: {
+          name: guest.name,
+          table_no: guest.table_no || "未分配",
+          actual_attendees: actualAttendees
+        },
+        prompt: null,
+        formValues
+      })
+    );
+    return;
+  }
+
   if (req.method === "POST" && pathname === "/invite/rsvp") {
     const body = await parseBody(req);
     if (!body.name || !body.phone) {
@@ -506,6 +754,7 @@ const handleRequest = async (req, res) => {
   if (req.method === "GET" && pathname === "/lottery") {
     const store = loadStore();
     const session = getSession(req);
+    const { checkedInGuests } = getCheckedInGuests(store);
     const winners = store.winners.map((winner) => {
       const prize = store.prizes.find((item) => item.id === winner.prize_id);
       const guest = store.guests.find((item) => item.id === winner.guest_id);
@@ -521,7 +770,7 @@ const handleRequest = async (req, res) => {
       renderLottery({
         prizes: store.prizes,
         isAdmin: Boolean(session),
-        guests: store.guests.filter((guest) => guest.attending),
+        guests: checkedInGuests,
         winners
       })
     );
@@ -558,9 +807,10 @@ const handleRequest = async (req, res) => {
       sendResponse(res, 400, JSON.stringify({ error: "奖品已抽完" }), "application/json");
       return;
     }
+    const { checkinMap } = getCheckedInGuests(store);
     const eligible = store.guests.filter(
       (guest) =>
-        guest.attending &&
+        checkinMap.has(guest.id) &&
         !store.winners.some((winner) => winner.guest_id === guest.id)
     );
     if (eligible.length === 0) {
