@@ -41,17 +41,18 @@ const adminLayout = (title, body) => `
   <body>
     <header class="top-bar">
       <div class="brand">Wedding Manager</div>
-      <nav class="nav-links">
-        <a href="/admin">仪表盘</a>
-        <a href="/admin/invitation">请柬设计</a>
-        <a href="/admin/guests">来宾管理</a>
-        <a href="/admin/checkins">现场签到</a>
-        <a href="/admin/seat-cards">席位牌</a>
-        <a href="/admin/lottery">现场摇奖</a>
-        <a href="/admin/admins">管理员</a>
-        <a href="/admin/logout">退出</a>
-      </nav>
-    </header>
+    <nav class="nav-links">
+      <a href="/admin">仪表盘</a>
+      <a href="/admin/invitation">请柬设计</a>
+      <a href="/admin/guests">来宾管理</a>
+      <a href="/admin/checkins">现场签到</a>
+      <a href="/admin/seat-cards">席位牌</a>
+      <a href="/admin/lottery">现场摇奖</a>
+      <a href="/admin/ledger">流水</a>
+      <a href="/admin/admins">管理员</a>
+      <a href="/admin/logout">退出</a>
+    </nav>
+  </header>
     <main class="container">
       ${body}
     </main>
@@ -700,6 +701,288 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
       if (target) {
         target.scrollIntoView({ behavior: "smooth", block: "center" });
       }
+    }
+  })();
+</script>
+`
+  );
+};
+
+const renderLedger = ({ entries, categories, activeCategory, error }) => {
+  const ledgerEntries = entries || [];
+  const categoryList = categories || [];
+  const today = new Date().toISOString().slice(0, 10);
+  const formatMoney = (value) =>
+    Number(value || 0).toLocaleString("zh-CN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  const summarizeEntries = (items) =>
+    items.reduce(
+      (summary, entry) => {
+        const amount = Number(entry.amount) || 0;
+        if (entry.direction === "income") {
+          summary.income += amount;
+        } else {
+          summary.expense += amount;
+        }
+        summary.net = summary.income - summary.expense;
+        return summary;
+      },
+      { income: 0, expense: 0, net: 0 }
+    );
+  const overallSummary = summarizeEntries(ledgerEntries);
+  const categorySummaries = categoryList.map((category) => {
+    const items = ledgerEntries.filter(
+      (entry) => entry.category === category.value
+    );
+    return {
+      ...category,
+      summary: summarizeEntries(items)
+    };
+  });
+  const filteredEntries = activeCategory
+    ? ledgerEntries.filter((entry) => entry.category === activeCategory)
+    : ledgerEntries;
+  const exportHref = activeCategory
+    ? `/admin/ledger/export?category=${encodeURIComponent(activeCategory)}`
+    : "/admin/ledger/export";
+
+  const renderCategoryOptions = (selectedValue = "") =>
+    categoryList
+      .map((category) => {
+        const selected = selectedValue === category.value ? "selected" : "";
+        return `<option value="${escapeHtml(
+          category.value
+        )}" ${selected}>${escapeHtml(category.label)}</option>`;
+      })
+      .join("");
+
+  return adminLayout(
+    "流水管理",
+    `
+${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
+<section class="card ledger-summary">
+  <div class="section-header">
+    <div>
+      <h1>婚礼流水总览</h1>
+      <p>实时掌握各类别余额与整体收支表现。</p>
+    </div>
+    <div class="ledger-overall">
+      <div>
+        <span class="muted">总收入</span>
+        <div class="ledger-total income">¥${formatMoney(
+          overallSummary.income
+        )}</div>
+      </div>
+      <div>
+        <span class="muted">总支出</span>
+        <div class="ledger-total expense">¥${formatMoney(
+          overallSummary.expense
+        )}</div>
+      </div>
+      <div>
+        <span class="muted">结余</span>
+        <div class="ledger-total ${
+          overallSummary.net >= 0 ? "income" : "expense"
+        }">¥${formatMoney(overallSummary.net)}</div>
+      </div>
+    </div>
+  </div>
+  <div class="ledger-summary-grid">
+    ${categorySummaries
+      .map(
+        (category) => `
+    <div class="ledger-card">
+      <div class="ledger-card-title">${escapeHtml(category.label)}</div>
+      <div class="ledger-balance ${
+        category.summary.net >= 0 ? "income" : "expense"
+      }">¥${formatMoney(category.summary.net)}</div>
+      <div class="ledger-meta">
+        <span>收入 ¥${formatMoney(category.summary.income)}</span>
+        <span>支出 ¥${formatMoney(category.summary.expense)}</span>
+      </div>
+    </div>`
+      )
+      .join("")}
+  </div>
+</section>
+
+<section class="card">
+  <h2>新增流水</h2>
+  <form method="post" action="/admin/ledger" class="form-grid">
+    <label>
+      发生日期
+      <input type="date" name="occurred_at" value="${escapeHtml(
+        today
+      )}" required />
+    </label>
+    <label>
+      收支类型
+      <select name="direction" required>
+        <option value="expense">支出</option>
+        <option value="income">收入</option>
+      </select>
+    </label>
+    <label>
+      类型
+      <select name="category" required>
+        ${renderCategoryOptions()}
+      </select>
+    </label>
+    <label>
+      金额
+      <input type="number" name="amount" min="0" step="0.01" required />
+    </label>
+    <label class="full">
+      具体用途
+      <input type="text" name="purpose" required />
+    </label>
+    <label>
+      付款人
+      <input type="text" name="payer" required />
+    </label>
+    <label>
+      收款/支出对象
+      <input type="text" name="payee" />
+    </label>
+    <label>
+      付款方式
+      <input type="text" name="method" placeholder="现金/转账/支付宝等" />
+    </label>
+    <label class="full">
+      备注
+      <textarea name="note" rows="2"></textarea>
+    </label>
+    <button class="btn primary" type="submit">保存流水</button>
+  </form>
+</section>
+
+<section class="card">
+  <div class="section-header">
+    <div>
+      <h2>流水单</h2>
+      <p>支持按类别筛选与导出 Excel。</p>
+    </div>
+    <div class="ledger-actions">
+      <form method="get" action="/admin/ledger" class="inline-form ledger-filter">
+        <label>
+          类型筛选
+          <select name="category">
+            <option value="">全部类别</option>
+            ${renderCategoryOptions(activeCategory)}
+          </select>
+        </label>
+        <button class="btn ghost" type="submit">筛选</button>
+      </form>
+      <a class="btn primary" href="${exportHref}">导出Excel</a>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="table ledger-table">
+      <thead>
+        <tr>
+          <th>日期</th>
+          <th>收支</th>
+          <th>类型</th>
+          <th>金额</th>
+          <th>具体用途</th>
+          <th>付款人</th>
+          <th>对象</th>
+          <th>方式</th>
+          <th>备注</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${
+          filteredEntries.length
+            ? filteredEntries
+                .map((entry) => {
+                  const amountValue = Number(entry.amount || 0).toFixed(2);
+                  return `
+        <tr id="ledger-${entry.id}">
+          <td>
+            <input type="date" name="occurred_at" value="${escapeHtml(
+              entry.occurred_at || today
+            )}" form="ledger-form-${entry.id}" />
+          </td>
+          <td>
+            <select name="direction" form="ledger-form-${entry.id}">
+              <option value="expense" ${
+                entry.direction === "expense" ? "selected" : ""
+              }>支出</option>
+              <option value="income" ${
+                entry.direction === "income" ? "selected" : ""
+              }>收入</option>
+            </select>
+          </td>
+          <td>
+            <select name="category" form="ledger-form-${entry.id}">
+              ${renderCategoryOptions(entry.category)}
+            </select>
+          </td>
+          <td>
+            <input type="number" name="amount" min="0" step="0.01" value="${escapeHtml(
+              amountValue
+            )}" form="ledger-form-${entry.id}" />
+          </td>
+          <td>
+            <input type="text" name="purpose" value="${escapeHtml(
+              entry.purpose || ""
+            )}" form="ledger-form-${entry.id}" />
+          </td>
+          <td>
+            <input type="text" name="payer" value="${escapeHtml(
+              entry.payer || ""
+            )}" form="ledger-form-${entry.id}" />
+          </td>
+          <td>
+            <input type="text" name="payee" value="${escapeHtml(
+              entry.payee || ""
+            )}" form="ledger-form-${entry.id}" />
+          </td>
+          <td>
+            <input type="text" name="method" value="${escapeHtml(
+              entry.method || ""
+            )}" form="ledger-form-${entry.id}" />
+          </td>
+          <td>
+            <input type="text" name="note" value="${escapeHtml(
+              entry.note || ""
+            )}" form="ledger-form-${entry.id}" />
+          </td>
+          <td>
+            <form method="post" action="/admin/ledger/${
+              entry.id
+            }/update" class="inline-form" id="ledger-form-${entry.id}">
+              <input type="hidden" name="return_to" value="ledger-${entry.id}" />
+              <button class="btn ghost" type="submit">保存</button>
+            </form>
+            <form method="post" action="/admin/ledger/${entry.id}/delete" class="inline-form">
+              <button class="btn ghost" type="submit" onclick="return confirm('确认删除该流水吗？');">删除</button>
+            </form>
+          </td>
+        </tr>`;
+                })
+                .join("")
+            : `<tr><td colspan="10" class="muted">暂无流水记录。</td></tr>`
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+<script>
+  (() => {
+    const filterSelect = document.querySelector(".ledger-filter select");
+    if (filterSelect) {
+      filterSelect.addEventListener("change", () => {
+        if (typeof filterSelect.form?.requestSubmit === "function") {
+          filterSelect.form.requestSubmit();
+        } else if (filterSelect.form) {
+          filterSelect.form.submit();
+        }
+      });
     }
   })();
 </script>
@@ -1577,6 +1860,7 @@ module.exports = {
   renderAdmins,
   renderInvitation,
   renderGuests,
+  renderLedger,
   renderTablePrint,
   renderSeatCards,
   renderAdminCheckins,

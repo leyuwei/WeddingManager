@@ -99,6 +99,82 @@ body {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
 }
 
+.ledger-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.ledger-card {
+  background: #f9f7f5;
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid #efe6df;
+}
+
+.ledger-card-title {
+  font-weight: 600;
+  color: #6c5c53;
+  margin-bottom: 10px;
+}
+
+.ledger-balance,
+.ledger-total {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.ledger-balance.income,
+.ledger-total.income {
+  color: #2f8f5f;
+}
+
+.ledger-balance.expense,
+.ledger-total.expense {
+  color: #c25252;
+}
+
+.ledger-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #6c5c53;
+}
+
+.ledger-overall {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ledger-overall .muted {
+  font-size: 12px;
+}
+
+.ledger-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.ledger-filter label {
+  font-weight: 600;
+  gap: 6px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.ledger-table input,
+.ledger-table select {
+  min-width: 120px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
