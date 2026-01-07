@@ -25,7 +25,7 @@ body {
 
 .stage-title {
   font-family: "Playfair Display", serif;
-  font-size: clamp(40px, 4vw, 56px);
+  font-size: clamp(80px, 8vw, 112px);
   letter-spacing: 6px;
 }
 
@@ -217,7 +217,7 @@ body {
 }
 
 .winner-name {
-  font-size: clamp(76px, 8vw, 136px);
+  font-size: clamp(152px, 16vw, 272px);
   font-weight: 700;
   text-shadow: 0 0 30px rgba(255, 255, 255, 0.3);
   z-index: 2;
