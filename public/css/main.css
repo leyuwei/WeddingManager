@@ -202,10 +202,14 @@ textarea {
 
 .seat-card {
   border-radius: 18px;
-  padding: 20px;
+  padding: 0;
   background: linear-gradient(135deg, #fff5f7, #f3f5ff);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
   text-align: center;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  min-height: 140px;
 }
 
 .seat-table {
@@ -214,14 +218,94 @@ textarea {
 }
 
 .seat-name {
-  font-size: 22px;
+  font-size: 28px;
   font-weight: 700;
   margin: 10px 0;
 }
 
 .seat-note {
-  font-size: 12px;
+  font-size: 14px;
   color: #8a7c71;
+}
+
+.seat-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 12px;
+}
+
+.seat-panel + .seat-panel {
+  border-left: 1px dashed rgba(138, 124, 113, 0.4);
+}
+
+.seat-panel-name .seat-name {
+  font-size: 30px;
+}
+
+.seat-panel-center .seat-note {
+  margin-top: 6px;
+}
+
+.seat-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .top-bar,
+  .card,
+  .seat-actions,
+  .nav-links {
+    display: none !important;
+  }
+
+  .container {
+    padding: 0;
+    max-width: none;
+  }
+
+  .seat-grid {
+    display: block;
+    margin: 0;
+  }
+
+  .seat-card {
+    box-shadow: none;
+    border-radius: 0;
+    border: 1px solid #b8b0a6;
+    height: 210mm;
+    width: 297mm;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .seat-panel + .seat-panel {
+    border-left: 1px dashed #b8b0a6;
+  }
+
+  .seat-name {
+    font-size: 36px;
+  }
+
+  .seat-note {
+    font-size: 16px;
+  }
+
+  .seat-table {
+    font-size: 20px;
+  }
 }
 
 .auth-body {
