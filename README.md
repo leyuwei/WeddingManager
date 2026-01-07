@@ -78,7 +78,7 @@ WantedBy=multi-user.target
 
 > 说明：`/bin/bash -lc` 用于加载 nvm 环境并执行 `nvm use 18`，确保以 Node 18 启动。
 
-### 4) 启动与自启
+### 3) 启动与自启
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable wedding
