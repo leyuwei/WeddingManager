@@ -396,7 +396,7 @@ textarea {
 
 @media print {
   @page {
-    size: A4 portrait;
+    size: A4;
     margin: 0;
   }
 
@@ -405,8 +405,8 @@ textarea {
     background: #ffffff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    height: 100%;
-    width: 100%;
+    height: 297mm;
+    width: 210mm;
   }
 
   .print-actions,
