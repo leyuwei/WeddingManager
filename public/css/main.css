@@ -394,7 +394,7 @@ textarea {
 @media print {
   @page {
     size: A4;
-    margin: 16mm;
+    margin: 0;
   }
 
   body {
@@ -413,10 +413,23 @@ textarea {
     margin: 0;
     border-radius: 0;
     padding: 0;
-    min-height: auto;
+    min-height: 297mm;
+    width: 210mm;
+    height: 297mm;
     background: linear-gradient(150deg, #fff8f9, #f8f4ff);
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .print-body {
+    padding: 0;
+  }
+
+  .table-print-hero {
+    margin-bottom: 24px;
   }
 
   .page-break {

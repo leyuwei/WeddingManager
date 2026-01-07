@@ -291,6 +291,13 @@ const renderInvitation = ({ settings, sections, fields }) =>
 
 const renderGuests = ({ guests, fields, tables }) => {
   const tableList = tables || [];
+  const getGuestPartySize = (guest) => {
+    const rawValue = guest?.responses?.attendees;
+    if (!rawValue) return 1;
+    const parsed = Number.parseInt(String(rawValue).trim(), 10);
+    if (Number.isNaN(parsed) || parsed < 1) return 1;
+    return parsed;
+  };
   const tableNos = new Set(
     tableList
       .map((table) => String(table.table_no || "").trim())
@@ -427,7 +434,10 @@ const renderGuests = ({ guests, fields, tables }) => {
         const assignedGuests = guests.filter(
           (guest) => String(guest.table_no || "").trim() === table.table_no
         );
-        const assignedCount = assignedGuests.length;
+        const assignedCount = assignedGuests.reduce(
+          (sum, guest) => sum + getGuestPartySize(guest),
+          0
+        );
         return `
       <div class="table-card">
         <div class="table-visual">
