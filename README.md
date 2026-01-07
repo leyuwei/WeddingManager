@@ -32,6 +32,81 @@ node server.js
 2. Nginx 反向代理到 `http://127.0.0.1:3000`。
 3. 配置 `SESSION_SECRET` 环境变量提升安全性。
 
+## 使用 systemd 管理服务（包含 nvm use 18）
+下面示例以 `ubuntu` 用户为例，假设项目目录为 `/opt/WeddingManager`，并使用 `nvm` 管理 Node 版本。
+
+### 1) 准备运行用户与目录
+```bash
+sudo useradd -r -m -d /opt/wedding-manager -s /bin/bash wedding
+sudo mkdir -p /opt/wedding-manager
+sudo chown -R wedding:wedding /opt/wedding-manager
+```
+
+将项目代码放到 `/opt/WeddingManager`（或你自己的目录），并确保该用户可以读写：
+```bash
+sudo chown -R wedding:wedding /opt/WeddingManager
+```
+
+### 2) 为运行用户安装 nvm 与 Node 18
+使用 `wedding` 用户登录或切换：
+```bash
+sudo -u wedding -i
+```
+
+安装 nvm（示例版本仅供参考）：
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+```
+
+加载 nvm 并安装 Node 18：
+```bash
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm install 18
+nvm alias default 18
+```
+
+### 3) 创建 systemd 服务文件
+编辑 `/etc/systemd/system/wedding-manager.service`：
+```ini
+[Unit]
+Description=WeddingManager Service
+After=network.target
+
+[Service]
+Type=simple
+User=wedding
+WorkingDirectory=/opt/WeddingManager
+Environment=NODE_ENV=production
+Environment=SESSION_SECRET=change-me
+Environment=DB_PATH=/var/lib/wedding-manager/store.db
+Environment=DATA_PATH=/var/lib/wedding-manager/store.json
+ExecStart=/bin/bash -lc 'export NVM_DIR="$HOME/.nvm"; \
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; \
+  nvm use 18; \
+  node server.js'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> 说明：`/bin/bash -lc` 用于加载 nvm 环境并执行 `nvm use 18`，确保以 Node 18 启动。
+
+### 4) 启动与自启
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable wedding-manager
+sudo systemctl start wedding-manager
+```
+
+查看状态与日志：
+```bash
+sudo systemctl status wedding-manager
+journalctl -u wedding-manager -f
+```
+
 ## 测试
 ```bash
 npm test
