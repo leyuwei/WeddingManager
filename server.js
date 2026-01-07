@@ -134,6 +134,22 @@ const getCheckedInGuests = (store) => {
 
 const normalizeTableNo = (value) => String(value || "").trim();
 
+const parsePartySize = (value) => {
+  const parsed = Number.parseInt(String(value || "").trim(), 10);
+  if (Number.isNaN(parsed) || parsed < 1) return 1;
+  return parsed;
+};
+
+const getGuestPartySizeFromResponses = (responses) =>
+  parsePartySize(responses?.attendees);
+
+const getAssignedSeats = (guests, tableNo, excludeGuestId = null) =>
+  (guests || []).reduce((sum, guest) => {
+    if (normalizeTableNo(guest.table_no) !== tableNo) return sum;
+    if (excludeGuestId && guest.id === excludeGuestId) return sum;
+    return sum + getGuestPartySizeFromResponses(guest.responses || {});
+  }, 0);
+
 const getValidTableNo = (value, tables) => {
   const tableNos = new Set(
     (tables || [])
@@ -358,6 +374,7 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
+    const error = url.searchParams.get("error");
     const guests = store.guests.map((guest) => ({
       ...guest,
       responses: guest.responses || {}
@@ -368,7 +385,8 @@ const handleRequest = async (req, res) => {
       renderGuests({
         guests,
         fields: store.invitation_fields,
-        tables: sortTables(store.tables)
+        tables: sortTables(store.tables),
+        error
       })
     );
     return;
@@ -388,6 +406,23 @@ const handleRequest = async (req, res) => {
     store.invitation_fields.forEach((field) => {
       responses[field.field_key] = body[field.field_key] || "";
     });
+    if (tableNo) {
+      const targetTable = store.tables.find(
+        (table) => normalizeTableNo(table.table_no) === tableNo
+      );
+      const seats = Math.max(Number.parseInt(targetTable?.seats, 10) || 0, 0);
+      if (seats > 0) {
+        const assignedSeats = getAssignedSeats(store.guests, tableNo);
+        const incomingSeats = getGuestPartySizeFromResponses(responses);
+        if (assignedSeats + incomingSeats > seats) {
+          const message = encodeURIComponent(
+            `桌号 ${tableNo} 已超出最大承载 ${seats} 位，请调整座位。`
+          );
+          redirect(res, `/admin/guests?error=${message}`);
+          return;
+        }
+      }
+    }
     const existing = store.guests.find((guest) => guest.phone === body.phone);
     if (existing) {
       existing.name = body.name;
@@ -423,6 +458,25 @@ const handleRequest = async (req, res) => {
     store.invitation_fields.forEach((field) => {
       responses[field.field_key] = body[field.field_key] || "";
     });
+    if (tableNo) {
+      const targetTable = store.tables.find(
+        (table) => normalizeTableNo(table.table_no) === tableNo
+      );
+      const seats = Math.max(Number.parseInt(targetTable?.seats, 10) || 0, 0);
+      if (seats > 0) {
+        const assignedSeats = getAssignedSeats(store.guests, tableNo, id);
+        const incomingSeats = getGuestPartySizeFromResponses(responses);
+        if (assignedSeats + incomingSeats > seats) {
+          const message = encodeURIComponent(
+            `桌号 ${tableNo} 已超出最大承载 ${seats} 位，请调整座位。`
+          );
+          const returnTo = (body.return_to || "").trim();
+          const hash = returnTo ? `#${encodeURIComponent(returnTo)}` : "";
+          redirect(res, `/admin/guests?error=${message}${hash}`);
+          return;
+        }
+      }
+    }
     store.guests = store.guests.map((guest) =>
       guest.id === id
         ? {

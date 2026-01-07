@@ -324,6 +324,15 @@ textarea {
   border: 1px solid #f0e2e7;
 }
 
+.table-capacity-warning {
+  background: #fff3f0;
+  color: #b94949;
+  border: 1px solid #f1c9c9;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
 .guest-row-alert {
   background: #fff3f0;
 }

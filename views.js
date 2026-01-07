@@ -289,7 +289,7 @@ const renderInvitation = ({ settings, sections, fields }) =>
 `
   );
 
-const renderGuests = ({ guests, fields, tables }) => {
+const renderGuests = ({ guests, fields, tables, error }) => {
   const tableList = tables || [];
   const getGuestPartySize = (guest) => {
     const rawValue = guest?.responses?.attendees;
@@ -327,6 +327,7 @@ const renderGuests = ({ guests, fields, tables }) => {
   return adminLayout(
     "来宾管理",
     `
+${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
 <section class="card">
   <h1>手动新增来宾</h1>
   <form method="post" action="/admin/guests" class="form-grid">
@@ -438,6 +439,7 @@ const renderGuests = ({ guests, fields, tables }) => {
           (sum, guest) => sum + getGuestPartySize(guest),
           0
         );
+        const isOverCapacity = seatCount > 0 && assignedCount > seatCount;
         return `
       <div class="table-card">
         <div class="table-visual">
@@ -470,6 +472,13 @@ const renderGuests = ({ guests, fields, tables }) => {
             table.preference ? escapeHtml(table.preference) : "暂无偏好"
           }</div>
         </div>
+        ${
+          isOverCapacity
+            ? `<div class="table-capacity-warning">已超出最大承载 ${escapeHtml(
+                seatCount
+              )} 位，请调整座位。</div>`
+            : ""
+        }
         <div class="table-guest-list">
           <div class="table-guest-title">已分配来宾</div>
           ${
