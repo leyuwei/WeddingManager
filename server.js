@@ -11,6 +11,7 @@ const {
   renderAdmins,
   renderInvitation,
   renderGuests,
+  renderTablePrint,
   renderSeatCards,
   renderAdminCheckins,
   renderAdminLottery,
@@ -130,6 +131,43 @@ const getCheckedInGuests = (store) => {
   );
   return { checkedInGuests, pendingGuests, checkinMap };
 };
+
+const normalizeTableNo = (value) => String(value || "").trim();
+
+const parsePartySize = (value) => {
+  const parsed = Number.parseInt(String(value || "").trim(), 10);
+  if (Number.isNaN(parsed) || parsed < 1) return 1;
+  return parsed;
+};
+
+const getGuestPartySizeFromResponses = (responses) =>
+  parsePartySize(responses?.attendees);
+
+const getAssignedSeats = (guests, tableNo, excludeGuestId = null) =>
+  (guests || []).reduce((sum, guest) => {
+    if (normalizeTableNo(guest.table_no) !== tableNo) return sum;
+    if (excludeGuestId && guest.id === excludeGuestId) return sum;
+    return sum + getGuestPartySizeFromResponses(guest.responses || {});
+  }, 0);
+
+const getValidTableNo = (value, tables) => {
+  const tableNos = new Set(
+    (tables || [])
+      .map((table) => normalizeTableNo(table.table_no))
+      .filter(Boolean)
+  );
+  const normalized = normalizeTableNo(value);
+  if (!normalized) return "";
+  return tableNos.has(normalized) ? normalized : "";
+};
+
+const sortTables = (tables) =>
+  [...(tables || [])].sort((a, b) =>
+    String(a.table_no || "").localeCompare(String(b.table_no || ""), "zh-Hans", {
+      numeric: true,
+      sensitivity: "base"
+    })
+  );
 
 const upsertCheckin = (store, guestId, actualAttendees) => {
   store.checkins = store.checkins || [];
@@ -336,6 +374,8 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
+    const error = url.searchParams.get("error");
+    const errorGuestId = url.searchParams.get("error_guest");
     const guests = store.guests.map((guest) => ({
       ...guest,
       responses: guest.responses || {}
@@ -343,8 +383,56 @@ const handleRequest = async (req, res) => {
     sendResponse(
       res,
       200,
-      renderGuests({ guests, fields: store.invitation_fields })
+      renderGuests({
+        guests,
+        fields: store.invitation_fields,
+        tables: sortTables(store.tables),
+        error,
+        errorGuestId
+      })
     );
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/admin/guests/export") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const fields = store.invitation_fields || [];
+    const header = [
+      "姓名",
+      "手机号",
+      "出席",
+      "席位号",
+      ...fields.map((field) => field.label)
+    ];
+    const rows = (store.guests || []).map((guest) => {
+      const responses = guest.responses || {};
+      const base = [
+        guest.name || "",
+        guest.phone || "",
+        guest.attending ? "是" : "否",
+        guest.table_no || ""
+      ];
+      const extras = fields.map((field) => responses[field.field_key] || "");
+      return [...base, ...extras];
+    });
+    const escapeCsvValue = (value) => {
+      const text = String(value ?? "");
+      if (/[",\n]/.test(text)) {
+        return `"${text.replaceAll('"', '""')}"`;
+      }
+      return text;
+    };
+    const csv = [header, ...rows]
+      .map((row) => row.map(escapeCsvValue).join(","))
+      .join("\n");
+    const filename = `guests-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.writeHead(200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`
+    });
+    res.end(`\uFEFF${csv}`);
     return;
   }
 
@@ -357,15 +445,33 @@ const handleRequest = async (req, res) => {
       return;
     }
     const store = loadStore();
+    const tableNo = getValidTableNo(body.table_no, store.tables);
     const responses = {};
     store.invitation_fields.forEach((field) => {
       responses[field.field_key] = body[field.field_key] || "";
     });
+    if (tableNo) {
+      const targetTable = store.tables.find(
+        (table) => normalizeTableNo(table.table_no) === tableNo
+      );
+      const seats = Math.max(Number.parseInt(targetTable?.seats, 10) || 0, 0);
+      if (seats > 0) {
+        const assignedSeats = getAssignedSeats(store.guests, tableNo);
+        const incomingSeats = getGuestPartySizeFromResponses(responses);
+        if (assignedSeats + incomingSeats > seats) {
+          const message = encodeURIComponent(
+            `桌号 ${tableNo} 已超出最大承载 ${seats} 位，请调整座位。`
+          );
+          redirect(res, `/admin/guests?error=${message}`);
+          return;
+        }
+      }
+    }
     const existing = store.guests.find((guest) => guest.phone === body.phone);
     if (existing) {
       existing.name = body.name;
       existing.attending = Boolean(body.attending);
-      existing.table_no = body.table_no || "";
+      existing.table_no = tableNo;
       existing.responses = responses;
       existing.updated_at = new Date().toISOString();
     } else {
@@ -375,7 +481,7 @@ const handleRequest = async (req, res) => {
         phone: body.phone,
         attending: Boolean(body.attending),
         responses,
-        table_no: body.table_no || "",
+        table_no: tableNo,
         updated_at: new Date().toISOString()
       });
     }
@@ -391,17 +497,40 @@ const handleRequest = async (req, res) => {
     const body = await parseBody(req);
     const store = loadStore();
     const id = Number(guestUpdateMatch[1]);
+    const tableNo = getValidTableNo(body.table_no, store.tables);
     const responses = {};
     store.invitation_fields.forEach((field) => {
       responses[field.field_key] = body[field.field_key] || "";
     });
+    if (tableNo) {
+      const targetTable = store.tables.find(
+        (table) => normalizeTableNo(table.table_no) === tableNo
+      );
+      const seats = Math.max(Number.parseInt(targetTable?.seats, 10) || 0, 0);
+      if (seats > 0) {
+        const assignedSeats = getAssignedSeats(store.guests, tableNo, id);
+        const incomingSeats = getGuestPartySizeFromResponses(responses);
+        if (assignedSeats + incomingSeats > seats) {
+          const message = encodeURIComponent(
+            `桌号 ${tableNo} 已超出最大承载 ${seats} 位，请调整座位。`
+          );
+          const returnTo = (body.return_to || "").trim();
+          const hash = returnTo ? `#${encodeURIComponent(returnTo)}` : "";
+          redirect(
+            res,
+            `/admin/guests?error=${message}&error_guest=${id}${hash}`
+          );
+          return;
+        }
+      }
+    }
     store.guests = store.guests.map((guest) =>
       guest.id === id
         ? {
             ...guest,
             name: body.name || guest.name,
             phone: body.phone || guest.phone,
-            table_no: body.table_no || "",
+            table_no: tableNo,
             attending: Boolean(body.attending),
             responses,
             updated_at: new Date().toISOString()
@@ -409,7 +538,9 @@ const handleRequest = async (req, res) => {
         : guest
     );
     saveStore(store);
-    redirect(res, "/admin/guests");
+    const returnTo = (body.return_to || "").trim();
+    const hash = returnTo ? `#${encodeURIComponent(returnTo)}` : "";
+    redirect(res, `/admin/guests${hash}`);
     return;
   }
 
@@ -422,6 +553,139 @@ const handleRequest = async (req, res) => {
     store.guests = store.guests.filter((guest) => guest.id !== id);
     saveStore(store);
     redirect(res, "/admin/guests");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/tables") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    const tableNo = normalizeTableNo(body.table_no);
+    if (!tableNo) {
+      redirect(res, "/admin/guests");
+      return;
+    }
+    const seats = Math.max(Number.parseInt(body.seats, 10) || 0, 0);
+    const existing = store.tables.find(
+      (table) => normalizeTableNo(table.table_no) === tableNo
+    );
+    const payload = {
+      table_no: tableNo,
+      nickname: (body.nickname || "").trim(),
+      seats,
+      preference: (body.preference || "").trim(),
+      updated_at: new Date().toISOString()
+    };
+    if (existing) {
+      Object.assign(existing, payload);
+    } else {
+      store.tables.push({
+        id: nextId(store, "tables"),
+        ...payload
+      });
+    }
+    saveStore(store);
+    redirect(res, "/admin/guests");
+    return;
+  }
+
+  const tableUpdateMatch = pathname.match(/^\/admin\/tables\/(\d+)\/update$/);
+  if (req.method === "POST" && tableUpdateMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    const id = Number(tableUpdateMatch[1]);
+    const tableNo = normalizeTableNo(body.table_no);
+    if (!tableNo) {
+      redirect(res, "/admin/guests");
+      return;
+    }
+    const seats = Math.max(Number.parseInt(body.seats, 10) || 0, 0);
+    let previousTableNo = "";
+    store.tables = store.tables.map((table) => {
+      if (table.id !== id) return table;
+      previousTableNo = normalizeTableNo(table.table_no);
+      return {
+        ...table,
+        table_no: tableNo,
+        nickname: (body.nickname || "").trim(),
+        seats,
+        preference: (body.preference || "").trim(),
+        updated_at: new Date().toISOString()
+      };
+    });
+    if (previousTableNo && previousTableNo !== tableNo) {
+      store.guests = store.guests.map((guest) =>
+        normalizeTableNo(guest.table_no) === previousTableNo
+          ? { ...guest, table_no: tableNo }
+          : guest
+      );
+    }
+    saveStore(store);
+    redirect(res, "/admin/guests");
+    return;
+  }
+
+  const tableDeleteMatch = pathname.match(/^\/admin\/tables\/(\d+)\/delete$/);
+  if (req.method === "POST" && tableDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const id = Number(tableDeleteMatch[1]);
+    let tableNo = "";
+    store.tables = store.tables.filter((table) => {
+      if (table.id !== id) return true;
+      tableNo = normalizeTableNo(table.table_no);
+      return false;
+    });
+    if (tableNo) {
+      store.guests = store.guests.map((guest) =>
+        normalizeTableNo(guest.table_no) === tableNo
+          ? { ...guest, table_no: "" }
+          : guest
+      );
+    }
+    saveStore(store);
+    redirect(res, "/admin/guests");
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/admin/tables/print") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    sendResponse(
+      res,
+      200,
+      renderTablePrint({
+        tables: sortTables(store.tables),
+        guests: store.guests
+      })
+    );
+    return;
+  }
+
+  const tablePrintMatch = pathname.match(/^\/admin\/tables\/(\d+)\/print$/);
+  if (req.method === "GET" && tablePrintMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const id = Number(tablePrintMatch[1]);
+    const table = store.tables.find((item) => item.id === id);
+    if (!table) {
+      sendResponse(res, 404, "Not Found", "text/plain");
+      return;
+    }
+    sendResponse(
+      res,
+      200,
+      renderTablePrint({
+        tables: [table],
+        guests: store.guests
+      })
+    );
     return;
   }
 
