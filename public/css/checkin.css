@@ -117,6 +117,46 @@ input {
   margin-bottom: 12px;
 }
 
+.notice {
+  background: #fff6d6;
+  color: #6d4c00;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.prompt-card {
+  border: 1px solid #f4d7d7;
+  background: #fff5f5;
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.prompt-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #8b3d3d;
+}
+
+.prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.btn.ghost {
+  background: transparent;
+  border: 1px solid #d1c7be;
+  color: #4b3c33;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .result-card {
   background: linear-gradient(120deg, #fff1f4, #f1f4ff);
   padding: 16px;

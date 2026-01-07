@@ -578,7 +578,13 @@ const handleRequest = async (req, res) => {
     sendResponse(
       res,
       200,
-      renderCheckin({ settings: store.settings, error: null, result: null })
+      renderCheckin({
+        settings: store.settings,
+        error: null,
+        result: null,
+        prompt: null,
+        formValues: {}
+      })
     );
     return;
   }
@@ -588,11 +594,18 @@ const handleRequest = async (req, res) => {
     const nameInput = (body.name || "").trim();
     const phoneInput = (body.phone || "").trim();
     const confirmAttending = Boolean(body.confirm_attending);
+    const forceNew = body.force_new === "1";
     const actualAttendees = Math.max(
       Number.parseInt(body.actual_attendees, 10) || 1,
       1
     );
     const store = loadStore();
+    const formValues = {
+      name: nameInput,
+      phone: phoneInput,
+      actual_attendees: String(actualAttendees),
+      confirm_attending: confirmAttending
+    };
     if (!nameInput && !phoneInput) {
       sendResponse(
         res,
@@ -600,7 +613,9 @@ const handleRequest = async (req, res) => {
         renderCheckin({
           settings: store.settings,
           error: "请填写姓名或手机号后再签到。",
-          result: null
+          result: null,
+          prompt: null,
+          formValues
         })
       );
       return;
@@ -612,17 +627,58 @@ const handleRequest = async (req, res) => {
         renderCheckin({
           settings: store.settings,
           error: "请确认到场出席状态。",
-          result: null
+          result: null,
+          prompt: null,
+          formValues
         })
       );
       return;
     }
+    const nameMatches = nameInput
+      ? store.guests.filter((item) => item.name === nameInput)
+      : [];
+    const phoneMatches = phoneInput
+      ? store.guests.filter((item) => item.phone === phoneInput)
+      : [];
     let guest = null;
-    if (phoneInput) {
-      guest = store.guests.find((item) => item.phone === phoneInput);
+    if (nameInput && phoneInput) {
+      guest = store.guests.find(
+        (item) => item.name === nameInput && item.phone === phoneInput
+      );
+    } else if (phoneInput) {
+      guest = phoneMatches[0] || null;
+    } else if (nameInput) {
+      guest = nameMatches[0] || null;
     }
-    if (!guest && nameInput) {
-      guest = store.guests.find((item) => item.name === nameInput);
+    if (!guest && !forceNew) {
+      let message = "未在请柬登记名单中出现，是否填写错误？是否之前由其他亲朋代为登记过？";
+      if (nameInput && phoneInput) {
+        if (nameMatches.length && !phoneMatches.length) {
+          message = "姓名匹配到登记名单，但手机号不一致，请确认是否输入错误。";
+        } else if (phoneMatches.length && !nameMatches.length) {
+          message = "手机号匹配到登记名单，但姓名不一致，请确认是否输入错误。";
+        } else if (nameMatches.length && phoneMatches.length) {
+          message = "姓名与手机号分别匹配到不同来宾，请确认是否输入错误。";
+        }
+      } else if (nameMatches.length > 1) {
+        message = "存在多位同名来宾，请补充手机号以确认身份。";
+      } else if (phoneMatches.length > 1) {
+        message = "该手机号匹配到多位来宾，请联系工作人员确认。";
+      } else if (nameMatches.length === 1 || phoneMatches.length === 1) {
+        message = "仅找到部分匹配信息，请确认是否输入错误。";
+      }
+      sendResponse(
+        res,
+        200,
+        renderCheckin({
+          settings: store.settings,
+          error: null,
+          result: null,
+          prompt: { message },
+          formValues
+        })
+      );
+      return;
     }
     if (guest) {
       if (nameInput) guest.name = nameInput;
@@ -654,7 +710,9 @@ const handleRequest = async (req, res) => {
           name: guest.name,
           table_no: guest.table_no || "未分配",
           actual_attendees: actualAttendees
-        }
+        },
+        prompt: null,
+        formValues
       })
     );
     return;

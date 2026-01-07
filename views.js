@@ -834,7 +834,7 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
 </html>
 `;
 
-const renderCheckin = ({ settings, error, result }) => `
+const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -862,9 +862,35 @@ const renderCheckin = ({ settings, error, result }) => `
       <section class="checkin-card">
         <h2>现场签到</h2>
         <p class="muted">请填写姓名或手机号完成现场签到。</p>
+        <div class="notice">签到信息将用于现场抽奖，请谨慎确认填写。</div>
         ${
           error
             ? `<div class="alert">${escapeHtml(error)}</div>`
+            : ""
+        }
+        ${
+          prompt
+            ? `<div class="prompt-card">
+              <div class="prompt-title">需要确认</div>
+              <p>${escapeHtml(prompt.message || "")}</p>
+              <div class="prompt-actions">
+                <a class="btn ghost" href="/checkin">重新填写</a>
+                <form method="post" action="/checkin">
+                  <input type="hidden" name="force_new" value="1" />
+                  <input type="hidden" name="name" value="${escapeHtml(
+                    formValues?.name || ""
+                  )}" />
+                  <input type="hidden" name="phone" value="${escapeHtml(
+                    formValues?.phone || ""
+                  )}" />
+                  <input type="hidden" name="actual_attendees" value="${escapeHtml(
+                    formValues?.actual_attendees || "1"
+                  )}" />
+                  <input type="hidden" name="confirm_attending" value="on" />
+                  <button class="btn primary" type="submit">作为新增来宾签到</button>
+                </form>
+              </div>
+            </div>`
             : ""
         }
         ${
@@ -891,18 +917,26 @@ const renderCheckin = ({ settings, error, result }) => `
         <form method="post" action="/checkin" class="form-stack">
           <label>
             姓名
-            <input type="text" name="name" placeholder="可填写姓名" />
+            <input type="text" name="name" placeholder="可填写姓名" value="${escapeHtml(
+              formValues?.name || ""
+            )}" />
           </label>
           <label>
             手机号
-            <input type="tel" name="phone" placeholder="可填写手机号" />
+            <input type="tel" name="phone" placeholder="可填写手机号" value="${escapeHtml(
+              formValues?.phone || ""
+            )}" />
           </label>
           <label>
             实际出席人数
-            <input type="number" name="actual_attendees" min="1" value="1" required />
+            <input type="number" name="actual_attendees" min="1" value="${escapeHtml(
+              formValues?.actual_attendees || "1"
+            )}" required />
           </label>
           <label class="inline">
-            <input type="checkbox" name="confirm_attending" required />
+            <input type="checkbox" name="confirm_attending" required ${
+              formValues?.confirm_attending ? "checked" : ""
+            } />
             我已到场并确认出席
           </label>
           <button class="btn primary" type="submit">确认签到</button>
