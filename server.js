@@ -283,7 +283,18 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
-    sendResponse(res, 200, renderAdmins(store.admins));
+    const error = url.searchParams.get("error");
+    const success = url.searchParams.get("success");
+    sendResponse(
+      res,
+      200,
+      renderAdmins({
+        admins: store.admins,
+        currentAdminId: session.adminId,
+        error,
+        success
+      })
+    );
     return;
   }
 
@@ -302,6 +313,37 @@ const handleRequest = async (req, res) => {
       saveStore(store);
     }
     redirect(res, "/admin/admins");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/admins/change-password") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const currentPassword = String(body.current_password || "");
+    const newPassword = String(body.new_password || "");
+    const confirmPassword = String(body.confirm_password || "");
+    if (!currentPassword || !newPassword) {
+      const message = encodeURIComponent("请填写当前密码与新密码。");
+      redirect(res, `/admin/admins?error=${message}`);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      const message = encodeURIComponent("两次输入的新密码不一致。");
+      redirect(res, `/admin/admins?error=${message}`);
+      return;
+    }
+    const store = loadStore();
+    const admin = store.admins.find((item) => item.id === session.adminId);
+    if (!admin || !verifyPassword(currentPassword, admin.password_hash)) {
+      const message = encodeURIComponent("当前密码不正确。");
+      redirect(res, `/admin/admins?error=${message}`);
+      return;
+    }
+    admin.password_hash = hashPassword(newPassword);
+    saveStore(store);
+    const message = encodeURIComponent("密码已更新。");
+    redirect(res, `/admin/admins?success=${message}`);
     return;
   }
 

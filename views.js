@@ -121,10 +121,12 @@ const renderDashboard = ({ guestCount, attendingCount }) =>
 `
   );
 
-const renderAdmins = (admins) =>
+const renderAdmins = ({ admins, currentAdminId, error, success }) =>
   adminLayout(
     "管理员管理",
     `
+${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
+${success ? `<div class="alert" style="background:#e9f7ef;color:#2f8f5f;">${escapeHtml(success)}</div>` : ""}
 <section class="card">
   <h1>管理员账户管理</h1>
   <form method="post" action="/admin/admins" class="form-grid">
@@ -137,6 +139,24 @@ const renderAdmins = (admins) =>
       <input type="password" name="password" required />
     </label>
     <button class="btn primary" type="submit">新增管理员</button>
+  </form>
+</section>
+<section class="card">
+  <h2>修改我的密码</h2>
+  <form method="post" action="/admin/admins/change-password" class="form-grid">
+    <label>
+      当前密码
+      <input type="password" name="current_password" required />
+    </label>
+    <label>
+      新密码
+      <input type="password" name="new_password" required />
+    </label>
+    <label>
+      确认新密码
+      <input type="password" name="confirm_password" required />
+    </label>
+    <button class="btn primary" type="submit">更新密码</button>
   </form>
 </section>
 <section class="card">
@@ -157,9 +177,13 @@ const renderAdmins = (admins) =>
         <td>${escapeHtml(admin.username)}</td>
         <td>${escapeHtml(admin.created_at)}</td>
         <td>
-          <form method="post" action="/admin/admins/${admin.id}/delete" class="inline-form">
+          ${
+            admin.id === currentAdminId
+              ? `<span class="muted">当前账号</span>`
+              : `<form method="post" action="/admin/admins/${admin.id}/delete" class="inline-form">
             <button class="btn ghost" type="submit" onclick="return confirm('确认删除该管理员账号吗？');">删除</button>
-          </form>
+          </form>`
+          }
         </td>
       </tr>`
         )
