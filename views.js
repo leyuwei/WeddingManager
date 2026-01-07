@@ -684,8 +684,7 @@ const renderLottery = ({ prizes, isAdmin, guests, winners }) => {
   <body>
     <div class="lottery-screen">
       <header class="stage-header">
-        <div class="stage-title">璀璨幸运时刻</div>
-        <p>真实来宾参与，惊喜瞬间引爆全场欢呼</p>
+        <div class="stage-title">现场摇奖时刻</div>
       </header>
       <div class="lottery-panel">
         <aside class="panel prize-panel">
