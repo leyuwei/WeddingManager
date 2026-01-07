@@ -437,7 +437,9 @@ const handleRequest = async (req, res) => {
         : guest
     );
     saveStore(store);
-    redirect(res, "/admin/guests");
+    const returnTo = (body.return_to || "").trim();
+    const hash = returnTo ? `#${encodeURIComponent(returnTo)}` : "";
+    redirect(res, `/admin/guests${hash}`);
     return;
   }
 

@@ -422,8 +422,9 @@ const renderGuests = ({ guests, fields, tables }) => {
     tableList.length
       ? `<div class="table-grid">
     ${tableList
-      .map(
-        (table) => `
+      .map((table) => {
+        const seatCount = Math.max(Number(table.seats) || 0, 0);
+        return `
       <div class="table-card">
         <div class="table-visual">
           <div class="table-visual-core">
@@ -431,9 +432,23 @@ const renderGuests = ({ guests, fields, tables }) => {
             <div class="table-nickname">${
               table.nickname ? escapeHtml(table.nickname) : "未命名"
             }</div>
+            ${
+              seatCount
+                ? `<div class="table-seat-ring" style="--seat-count:${escapeHtml(
+                    seatCount
+                  )}">
+              ${Array.from({ length: seatCount })
+                .map(
+                  (_, index) =>
+                    `<span class="table-seat" style="--seat-index:${index}"></span>`
+                )
+                .join("")}
+            </div>`
+                : ""
+            }
           </div>
           <div class="table-visual-seats">
-            ${table.seats ? `${escapeHtml(table.seats)} 位` : "未填写座位数"}
+            ${seatCount ? `${escapeHtml(seatCount)} 位` : "未填写座位数"}
           </div>
           <div class="table-visual-preference">${
             table.preference ? escapeHtml(table.preference) : "暂无偏好"
@@ -472,8 +487,8 @@ const renderGuests = ({ guests, fields, tables }) => {
             <button class="btn ghost" type="submit" onclick="return confirm('确认删除该桌子吗？');">删除</button>
           </form>
         </div>
-      </div>`
-      )
+      </div>`;
+      })
       .join("")}
   </div>`
       : `<p class="muted">暂无桌子信息，请先新增桌子。</p>`
@@ -501,7 +516,7 @@ const renderGuests = ({ guests, fields, tables }) => {
           const hasValidTable = tableNo && tableNos.has(tableNo);
           const rowClass = hasValidTable ? "" : ' class="guest-row-alert"';
           return `
-      <tr${rowClass}>
+      <tr${rowClass} id="guest-${guest.id}">
         <td>
           <input type="text" name="name" value="${escapeHtml(
             guest.name
@@ -528,7 +543,7 @@ const renderGuests = ({ guests, fields, tables }) => {
           </label>
         </td>
         <td>
-          <select name="table_no" form="guest-form-${guest.id}">
+          <select name="table_no" form="guest-form-${guest.id}" data-auto-save="true">
             <option value="">未分配</option>
             ${tableList
               .map((table) => {
@@ -597,6 +612,7 @@ const renderGuests = ({ guests, fields, tables }) => {
           <form method="post" action="/admin/guests/${
             guest.id
           }/update" class="inline-form" id="guest-form-${guest.id}">
+            <input type="hidden" name="return_to" value="guest-${guest.id}" />
             <button class="btn ghost" type="submit">保存</button>
           </form>
           <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
@@ -609,6 +625,32 @@ const renderGuests = ({ guests, fields, tables }) => {
     </tbody>
   </table>
 </section>
+<script>
+  (() => {
+    const autoSaveSelects = Array.from(
+      document.querySelectorAll("select[data-auto-save='true']")
+    );
+    autoSaveSelects.forEach((select) => {
+      select.addEventListener("change", () => {
+        const formId = select.getAttribute("form");
+        const form = formId ? document.getElementById(formId) : null;
+        if (!form) return;
+        if (typeof form.requestSubmit === "function") {
+          form.requestSubmit();
+        } else {
+          form.submit();
+        }
+      });
+    });
+
+    if (location.hash) {
+      const target = document.querySelector(location.hash);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  })();
+</script>
 `
   );
 };
@@ -625,51 +667,25 @@ const renderTablePrint = ({ tables, guests }) => {
       const hasNextPage = index < tableList.length - 1;
       return `
   <section class="table-print-page${hasNextPage ? " page-break" : ""}">
-    <div class="table-print-header">
-      <div>
-        <h1>桌号 ${escapeHtml(tableNo)}</h1>
-        <p class="muted">${escapeHtml(table.nickname || "未命名桌")}</p>
-      </div>
-      <div class="table-print-meta">
-        <div><strong>座位数</strong> ${escapeHtml(table.seats || 0)}</div>
-        <div><strong>宴席偏好</strong> ${escapeHtml(
-          table.preference || "暂无"
-        )}</div>
-        <div><strong>已分配</strong> ${assignedGuests.length} 人</div>
-      </div>
+    <div class="table-print-hero">
+      <div class="table-print-number">桌号 ${escapeHtml(tableNo)}</div>
+      <div class="table-print-nickname">${escapeHtml(
+        table.nickname || "未命名桌"
+      )}</div>
     </div>
-    <div class="table-print-divider"></div>
-    <h2>来宾名单</h2>
-    ${
-      assignedGuests.length
-        ? `<table class="print-table">
-      <thead>
-        <tr>
-          <th>序号</th>
-          <th>来宾</th>
-          <th>手机号</th>
-          <th>出席</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${assignedGuests
-          .map(
-            (guest, idx) => `
-        <tr>
-          <td>${idx + 1}</td>
-          <td>${escapeHtml(formatGuestDisplayName(guest))}</td>
-          <td>${escapeHtml(guest.phone || "-")}</td>
-          <td>${guest.attending ? "是" : "否"}</td>
-        </tr>`
-          )
-          .join("")}
-      </tbody>
-    </table>`
-        : `<p class="muted">暂无来宾分配到此桌。</p>`
-    }
-    <div class="table-print-footer">
-      <span>Wedding Manager</span>
-      <span>打印日期：${escapeHtml(new Date().toLocaleDateString("zh-CN"))}</span>
+    <div class="table-print-guest-list">
+      ${
+        assignedGuests.length
+          ? assignedGuests
+              .map(
+                (guest) => `
+        <div class="table-print-guest-name">${escapeHtml(
+          formatGuestDisplayName(guest)
+        )}</div>`
+              )
+              .join("")
+          : `<div class="table-print-guest-empty">暂无来宾分配</div>`
+      }
     </div>
   </section>`;
     })

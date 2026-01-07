@@ -241,20 +241,22 @@ textarea {
   position: relative;
 }
 
-.table-visual-core::before {
-  content: "";
+.table-seat-ring {
+  position: absolute;
+  inset: -8px;
+  pointer-events: none;
+}
+
+.table-seat {
   position: absolute;
   width: 10px;
   height: 10px;
   border-radius: 50%;
   background: #e5dbd3;
-  box-shadow:
-    -60px -10px 0 #e5dbd3,
-    60px -10px 0 #e5dbd3,
-    -70px 40px 0 #e5dbd3,
-    70px 40px 0 #e5dbd3,
-    -40px 80px 0 #e5dbd3,
-    40px 80px 0 #e5dbd3;
+  top: 50%;
+  left: 50%;
+  transform: rotate(calc(360deg / var(--seat-count) * var(--seat-index)))
+    translate(86px);
 }
 
 .table-number {
@@ -302,59 +304,50 @@ textarea {
 }
 
 .table-print-page {
-  background: #ffffff;
+  background: linear-gradient(150deg, #fff8f9, #f8f4ff);
   border-radius: 18px;
-  padding: 32px;
+  padding: 60px 40px;
   margin-bottom: 24px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
-}
-
-.table-print-header {
+  min-height: calc(100vh - 120px);
   display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
-.table-print-header h1 {
-  margin: 0 0 6px;
+.table-print-hero {
+  margin-bottom: 32px;
+}
+
+.table-print-number {
   font-family: "Playfair Display", serif;
-  font-size: 32px;
+  font-size: 42px;
+  font-weight: 600;
+  margin-bottom: 8px;
 }
 
-.table-print-meta {
-  display: grid;
-  gap: 6px;
-  font-size: 14px;
-  color: #4b3c33;
+.table-print-nickname {
+  font-size: 18px;
+  color: #6c5c53;
 }
 
-.table-print-divider {
-  height: 1px;
-  background: #eee;
-  margin: 20px 0;
-}
-
-.print-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 12px;
-  font-size: 14px;
-}
-
-.print-table th,
-.print-table td {
-  text-align: left;
-  padding: 10px 8px;
-  border-bottom: 1px solid #eee;
-}
-
-.table-print-footer {
+.table-print-guest-list {
   display: flex;
-  justify-content: space-between;
-  margin-top: 24px;
-  font-size: 12px;
-  color: #8a7c72;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 18px;
+  color: #2f2a26;
+}
+
+.table-print-guest-name {
+  letter-spacing: 1px;
+}
+
+.table-print-guest-empty {
+  font-size: 16px;
+  color: #9c8f85;
 }
 
 .page-break {
@@ -381,6 +374,8 @@ textarea {
     margin: 0;
     border-radius: 0;
     padding: 0;
+    min-height: auto;
+    background: #ffffff;
   }
 
   .page-break {
