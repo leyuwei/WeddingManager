@@ -427,6 +427,7 @@ const renderGuests = ({ guests, fields, tables }) => {
         const assignedGuests = guests.filter(
           (guest) => String(guest.table_no || "").trim() === table.table_no
         );
+        const assignedCount = assignedGuests.length;
         return `
       <div class="table-card">
         <div class="table-visual">
@@ -443,7 +444,9 @@ const renderGuests = ({ guests, fields, tables }) => {
               ${Array.from({ length: seatCount })
                 .map(
                   (_, index) =>
-                    `<span class="table-seat" style="--seat-index:${index}"></span>`
+                    `<span class="table-seat ${
+                      index < assignedCount ? "seat-assigned" : "seat-open"
+                    }" style="--seat-index:${index}"></span>`
                 )
                 .join("")}
             </div>`
