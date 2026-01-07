@@ -6,6 +6,29 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
+const getAttendeeLabel = (guest) => {
+  const rawValue = guest?.responses?.attendees;
+  if (!rawValue) return null;
+  const normalized = String(rawValue).trim();
+  if (!normalized) return null;
+  const parsed = Number.parseInt(normalized, 10);
+  if (Number.isNaN(parsed) || parsed < 2) return null;
+  return normalized;
+};
+
+const getCompanionLabel = (guest) => {
+  const attendeeLabel = getAttendeeLabel(guest);
+  if (!attendeeLabel) return null;
+  return `携亲朋${attendeeLabel}位`;
+};
+
+const formatGuestDisplayName = (guest) => {
+  const name = guest?.name || "";
+  const companionLabel = getCompanionLabel(guest);
+  if (!companionLabel) return name;
+  return `${name} ${companionLabel}`;
+};
+
 const adminLayout = (title, body) => `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -357,6 +380,13 @@ const renderGuests = ({ guests, fields }) =>
           <input type="text" name="name" value="${escapeHtml(
             guest.name
           )}" form="guest-form-${guest.id}" />
+          ${
+            getCompanionLabel(guest)
+              ? `<div class="muted">显示：${escapeHtml(
+                  formatGuestDisplayName(guest)
+                )}</div>`
+              : ""
+          }
         </td>
         <td>
           <input type="tel" name="phone" value="${escapeHtml(
@@ -462,6 +492,13 @@ const renderSeatCards = (guests) =>
   <div class="seat-card">
     <div class="seat-panel seat-panel-name">
       <div class="seat-name">${escapeHtml(guest.name)}</div>
+      ${
+        getCompanionLabel(guest)
+          ? `<div class="seat-name">${escapeHtml(
+              getCompanionLabel(guest)
+            )}</div>`
+          : ""
+      }
     </div>
     <div class="seat-panel seat-panel-center">
       <div class="seat-table">桌号 ${escapeHtml(guest.table_no || "未分配")}</div>
@@ -469,6 +506,13 @@ const renderSeatCards = (guests) =>
     </div>
     <div class="seat-panel seat-panel-name">
       <div class="seat-name">${escapeHtml(guest.name)}</div>
+      ${
+        getCompanionLabel(guest)
+          ? `<div class="seat-name">${escapeHtml(
+              getCompanionLabel(guest)
+            )}</div>`
+          : ""
+      }
     </div>
   </div>`
     )
