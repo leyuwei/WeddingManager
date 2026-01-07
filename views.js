@@ -289,8 +289,42 @@ const renderInvitation = ({ settings, sections, fields }) =>
 `
   );
 
-const renderGuests = ({ guests, fields }) =>
-  adminLayout(
+const renderGuests = ({ guests, fields, tables }) => {
+  const tableList = tables || [];
+  const getGuestPartySize = (guest) => {
+    const rawValue = guest?.responses?.attendees;
+    if (!rawValue) return 1;
+    const parsed = Number.parseInt(String(rawValue).trim(), 10);
+    if (Number.isNaN(parsed) || parsed < 1) return 1;
+    return parsed;
+  };
+  const tableNos = new Set(
+    tableList
+      .map((table) => String(table.table_no || "").trim())
+      .filter(Boolean)
+  );
+  const renderTableOptions = (selectedValue = "") => {
+    const normalized = String(selectedValue || "").trim();
+    const options = tableList
+      .map((table) => {
+        const tableNo = String(table.table_no || "").trim();
+        if (!tableNo) return "";
+        const nickname = table.nickname
+          ? ` · ${escapeHtml(table.nickname)}`
+          : "";
+        return `<option value="${escapeHtml(tableNo)}" ${
+          tableNo === normalized ? "selected" : ""
+        }>桌 ${escapeHtml(tableNo)}${nickname}</option>`;
+      })
+      .join("");
+    return `
+      <select name="table_no">
+        <option value="">未分配</option>
+        ${options}
+      </select>`;
+  };
+
+  return adminLayout(
     "来宾管理",
     `
 <section class="card">
@@ -306,8 +340,13 @@ const renderGuests = ({ guests, fields }) =>
     </label>
     <label>
       席位号
-      <input type="text" name="table_no" placeholder="可选" />
+      ${renderTableOptions()}
     </label>
+    ${
+      tableList.length
+        ? ""
+        : `<p class="muted full">请先在下方新增桌子，再为来宾分配席位。</p>`
+    }
     <label class="inline">
       <input type="checkbox" name="attending" checked />
       出席
@@ -360,8 +399,136 @@ const renderGuests = ({ guests, fields }) =>
 </section>
 
 <section class="card">
+  <div class="section-header">
+    <div>
+      <h1>桌号管理与可视化</h1>
+      <p>新增、编辑或删除桌子，并为来宾分配席位。</p>
+    </div>
+    <a class="btn primary" href="/admin/tables/print" target="_blank">一键打印全部桌牌</a>
+  </div>
+  <form method="post" action="/admin/tables" class="form-grid">
+    <label>
+      桌子编号
+      <input type="text" name="table_no" placeholder="如 1、A1" required />
+    </label>
+    <label>
+      桌子昵称
+      <input type="text" name="nickname" placeholder="如 亲友桌" />
+    </label>
+    <label>
+      座位数
+      <input type="number" name="seats" min="0" placeholder="如 10" />
+    </label>
+    <label>
+      宴席偏好
+      <input type="text" name="preference" placeholder="如 靠舞台/素食" />
+    </label>
+    <button class="btn primary" type="submit">新增桌子</button>
+  </form>
+  ${
+    tableList.length
+      ? `<div class="table-grid">
+    ${tableList
+      .map((table) => {
+        const seatCount = Math.max(Number(table.seats) || 0, 0);
+        const assignedGuests = guests.filter(
+          (guest) => String(guest.table_no || "").trim() === table.table_no
+        );
+        const assignedCount = assignedGuests.reduce(
+          (sum, guest) => sum + getGuestPartySize(guest),
+          0
+        );
+        return `
+      <div class="table-card">
+        <div class="table-visual">
+          <div class="table-visual-core">
+            <div class="table-number">桌 ${escapeHtml(table.table_no)}</div>
+            <div class="table-nickname">${
+              table.nickname ? escapeHtml(table.nickname) : "未命名"
+            }</div>
+            ${
+              seatCount
+                ? `<div class="table-seat-ring" style="--seat-count:${escapeHtml(
+                    seatCount
+                  )}">
+              ${Array.from({ length: seatCount })
+                .map(
+                  (_, index) =>
+                    `<span class="table-seat ${
+                      index < assignedCount ? "seat-assigned" : "seat-open"
+                    }" style="--seat-index:${index}"></span>`
+                )
+                .join("")}
+            </div>`
+                : ""
+            }
+          </div>
+          <div class="table-visual-seats">
+            ${seatCount ? `${escapeHtml(seatCount)} 位` : "未填写座位数"}
+          </div>
+          <div class="table-visual-preference">${
+            table.preference ? escapeHtml(table.preference) : "暂无偏好"
+          }</div>
+        </div>
+        <div class="table-guest-list">
+          <div class="table-guest-title">已分配来宾</div>
+          ${
+            assignedGuests.length
+              ? assignedGuests
+                  .map(
+                    (guest) =>
+                      `<span class="table-guest-name">${escapeHtml(
+                        formatGuestDisplayName(guest)
+                      )}</span>`
+                  )
+                  .join("")
+              : `<span class="muted">暂无来宾</span>`
+          }
+        </div>
+        <form method="post" action="/admin/tables/${table.id}/update" class="table-form">
+          <label>
+            桌号
+            <input type="text" name="table_no" value="${escapeHtml(
+              table.table_no
+            )}" required />
+          </label>
+          <label>
+            昵称
+            <input type="text" name="nickname" value="${escapeHtml(
+              table.nickname || ""
+            )}" />
+          </label>
+          <label>
+            座位数
+            <input type="number" name="seats" min="0" value="${escapeHtml(
+              table.seats || 0
+            )}" />
+          </label>
+          <label>
+            宴席偏好
+            <input type="text" name="preference" value="${escapeHtml(
+              table.preference || ""
+            )}" />
+          </label>
+          <button class="btn ghost" type="submit">保存修改</button>
+        </form>
+        <div class="table-actions">
+          <a class="btn ghost" href="/admin/tables/${table.id}/print" target="_blank">打印此桌</a>
+          <form method="post" action="/admin/tables/${table.id}/delete" class="inline-form">
+            <button class="btn ghost" type="submit" onclick="return confirm('确认删除该桌子吗？');">删除</button>
+          </form>
+        </div>
+      </div>`;
+      })
+      .join("")}
+  </div>`
+      : `<p class="muted">暂无桌子信息，请先新增桌子。</p>`
+  }
+</section>
+
+<section class="card">
   <h1>来宾信息统计</h1>
-  <p>可直接编辑来宾信息并保存修改。</p>
+  <p>可直接编辑来宾信息并保存修改。未分配或桌号不存在的来宾将高亮提醒。</p>
   <table class="table">
     <thead>
       <tr>
@@ -375,9 +542,12 @@ const renderGuests = ({ guests, fields }) =>
     </thead>
     <tbody>
       ${guests
-        .map(
-          (guest) => `
-      <tr>
+        .map((guest) => {
+          const tableNo = String(guest.table_no || "").trim();
+          const hasValidTable = tableNo && tableNos.has(tableNo);
+          const rowClass = hasValidTable ? "" : ' class="guest-row-alert"';
+          return `
+      <tr${rowClass} id="guest-${guest.id}">
         <td>
           <input type="text" name="name" value="${escapeHtml(
             guest.name
@@ -404,9 +574,21 @@ const renderGuests = ({ guests, fields }) =>
           </label>
         </td>
         <td>
-          <input type="text" name="table_no" value="${escapeHtml(
-            guest.table_no || ""
-          )}" placeholder="桌号" form="guest-form-${guest.id}" />
+          <select name="table_no" form="guest-form-${guest.id}" data-auto-save="true">
+            <option value="">未分配</option>
+            ${tableList
+              .map((table) => {
+                const tableValue = String(table.table_no || "").trim();
+                if (!tableValue) return "";
+                const nickname = table.nickname
+                  ? ` · ${escapeHtml(table.nickname)}`
+                  : "";
+                return `<option value="${escapeHtml(tableValue)}" ${
+                  tableValue === tableNo ? "selected" : ""
+                }>桌 ${escapeHtml(tableValue)}${nickname}</option>`;
+              })
+              .join("")}
+          </select>
         </td>
         <td>
           <div class="form-stack">
@@ -461,20 +643,104 @@ const renderGuests = ({ guests, fields }) =>
           <form method="post" action="/admin/guests/${
             guest.id
           }/update" class="inline-form" id="guest-form-${guest.id}">
+            <input type="hidden" name="return_to" value="guest-${guest.id}" />
             <button class="btn ghost" type="submit">保存</button>
           </form>
           <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
             <button class="btn ghost" type="submit" onclick="return confirm('确认删除该来宾吗？');">删除</button>
           </form>
         </td>
-      </tr>`
-        )
+      </tr>`;
+        })
         .join("")}
     </tbody>
   </table>
 </section>
+<script>
+  (() => {
+    const autoSaveSelects = Array.from(
+      document.querySelectorAll("select[data-auto-save='true']")
+    );
+    autoSaveSelects.forEach((select) => {
+      select.addEventListener("change", () => {
+        const formId = select.getAttribute("form");
+        const form = formId ? document.getElementById(formId) : null;
+        if (!form) return;
+        if (typeof form.requestSubmit === "function") {
+          form.requestSubmit();
+        } else {
+          form.submit();
+        }
+      });
+    });
+
+    if (location.hash) {
+      const target = document.querySelector(location.hash);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  })();
+</script>
 `
   );
+};
+
+const renderTablePrint = ({ tables, guests }) => {
+  const tableList = tables || [];
+  const guestList = guests || [];
+  const pages = tableList
+    .map((table, index) => {
+      const tableNo = String(table.table_no || "").trim();
+      const assignedGuests = guestList.filter(
+        (guest) => String(guest.table_no || "").trim() === tableNo
+      );
+      const hasNextPage = index < tableList.length - 1;
+      return `
+  <section class="table-print-page${hasNextPage ? " page-break" : ""}">
+    <div class="table-print-hero">
+      <div class="table-print-number">桌号 ${escapeHtml(tableNo)}</div>
+      <div class="table-print-nickname">${escapeHtml(
+        table.nickname || "未命名桌"
+      )}</div>
+    </div>
+    <div class="table-print-guest-list">
+      ${
+        assignedGuests.length
+          ? assignedGuests
+              .map(
+                (guest) => `
+        <div class="table-print-guest-name">${escapeHtml(
+          formatGuestDisplayName(guest)
+        )}</div>`
+              )
+              .join("")
+          : `<div class="table-print-guest-empty">暂无来宾分配</div>`
+      }
+    </div>
+  </section>`;
+    })
+    .join("");
+
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>桌号打印</title>
+    <link rel="stylesheet" href="/public/css/main.css" />
+  </head>
+  <body class="print-body">
+    <div class="print-actions">
+      <button class="btn primary" type="button" onclick="window.print()">一键打印</button>
+      <a class="btn ghost" href="/admin/guests">返回来宾管理</a>
+    </div>
+    ${pages || `<p class="muted">暂无桌子可打印。</p>`}
+  </body>
+</html>
+`;
+};
 
 const renderSeatCards = (guests) =>
   adminLayout(
@@ -1290,6 +1556,7 @@ module.exports = {
   renderAdmins,
   renderInvitation,
   renderGuests,
+  renderTablePrint,
   renderSeatCards,
   renderAdminCheckins,
   renderAdminLottery,
