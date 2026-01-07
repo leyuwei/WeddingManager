@@ -36,6 +36,7 @@ const defaultStore = () => ({
   invitation_sections: [],
   invitation_fields: [],
   guests: [],
+  checkins: [],
   prizes: [],
   winners: [],
   settings: {},
@@ -148,6 +149,7 @@ const seedStore = (store) => {
   }
 
   store.guests = store.guests || [];
+  store.checkins = store.checkins || [];
   store.prizes = store.prizes || [];
   store.winners = store.winners || [];
   store.counters = store.counters || {};

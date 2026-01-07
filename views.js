@@ -45,6 +45,7 @@ const adminLayout = (title, body) => `
         <a href="/admin">仪表盘</a>
         <a href="/admin/invitation">请柬设计</a>
         <a href="/admin/guests">来宾管理</a>
+        <a href="/admin/checkins">现场签到</a>
         <a href="/admin/seat-cards">席位牌</a>
         <a href="/admin/lottery">现场摇奖</a>
         <a href="/admin/admins">管理员</a>
@@ -113,6 +114,7 @@ const renderDashboard = ({ guestCount, attendingCount }) =>
 <section class="quick-links">
   <a class="tile" href="/invite" target="_blank">查看请柬效果</a>
   <a class="tile" href="/lottery" target="_blank">大屏抽奖页面</a>
+  <a class="tile" href="/admin/checkins">现场签到管理</a>
   <a class="tile" href="/admin/guests">管理来宾信息</a>
 </section>
 `
@@ -582,6 +584,142 @@ const renderAdminLottery = ({ prizes, winners }) =>
 `
   );
 
+const renderAdminCheckins = ({
+  checkinUrl,
+  totalGuests,
+  checkedInCount,
+  checkedInGuests,
+  pendingGuests
+}) =>
+  adminLayout(
+    "现场签到",
+    `
+<section class="card">
+  <h1>现场签到二维码</h1>
+  <p>来宾扫码即可进入签到页面。</p>
+  <div class="list-item" style="align-items: flex-start; gap: 24px;">
+    <div>
+      <strong>签到链接</strong>
+      <p><a href="${escapeHtml(checkinUrl)}" target="_blank">${escapeHtml(
+        checkinUrl
+      )}</a></p>
+      <p class="muted">可将该链接生成二维码打印张贴在签到台。</p>
+    </div>
+    <div>
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
+        checkinUrl
+      )}" alt="签到二维码" style="width: 180px; height: 180px; border-radius: 12px; border: 1px solid #eee;"/>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>手动新增到场来宾</h2>
+  <form method="post" action="/admin/checkins/manual" class="form-grid">
+    <label>
+      姓名
+      <input type="text" name="name" required />
+    </label>
+    <label>
+      手机号
+      <input type="tel" name="phone" placeholder="可选" />
+    </label>
+    <label>
+      席位号
+      <input type="text" name="table_no" placeholder="可选" />
+    </label>
+    <label>
+      实际出席人数
+      <input type="number" name="actual_attendees" min="1" value="1" required />
+    </label>
+    <button class="btn primary" type="submit">立即签到</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>签到进度</h2>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <h2>${totalGuests}</h2>
+      <p>全部来宾</p>
+    </div>
+    <div class="stat-card accent">
+      <h2>${checkedInCount}</h2>
+      <p>已签到</p>
+    </div>
+    <div class="stat-card">
+      <h2>${Math.max(totalGuests - checkedInCount, 0)}</h2>
+      <p>未签到</p>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>已签到来宾</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>姓名</th>
+        <th>手机号</th>
+        <th>席位号</th>
+        <th>实际人数</th>
+        <th>签到时间</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${
+        checkedInGuests.length
+          ? checkedInGuests
+              .map(
+                (guest) => `
+      <tr>
+        <td>${escapeHtml(guest.name || "-")}</td>
+        <td>${escapeHtml(guest.phone || "-")}</td>
+        <td>${escapeHtml(guest.table_no || "未分配")}</td>
+        <td>${escapeHtml(guest.checkin?.actual_attendees || "-")}</td>
+        <td>${escapeHtml(guest.checkin?.checked_in_at || "-")}</td>
+      </tr>`
+              )
+              .join("")
+          : `<tr><td colspan="5" class="muted">暂无来宾完成签到</td></tr>`
+      }
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>未签到来宾</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>姓名</th>
+        <th>手机号</th>
+        <th>席位号</th>
+        <th>出席意向</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${
+        pendingGuests.length
+          ? pendingGuests
+              .map(
+                (guest) => `
+      <tr>
+        <td>${escapeHtml(guest.name || "-")}</td>
+        <td>${escapeHtml(guest.phone || "-")}</td>
+        <td>${escapeHtml(guest.table_no || "未分配")}</td>
+        <td>${guest.attending ? "确认出席" : "未确认"}</td>
+      </tr>`
+              )
+              .join("")
+          : `<tr><td colspan="4" class="muted">所有来宾均已签到</td></tr>`
+      }
+    </tbody>
+  </table>
+</section>
+`
+  );
+
 const renderInvite = ({ settings, sections, fields, submitted }) => `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -690,6 +828,85 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
             <button class="btn primary" type="submit">提交信息</button>
           </form>
         </div>
+      </section>
+    </div>
+  </body>
+</html>
+`;
+
+const renderCheckin = ({ settings, error, result }) => `
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>现场签到</title>
+    <link rel="stylesheet" href="/public/css/checkin.css" />
+  </head>
+  <body>
+    <div class="checkin-page">
+      <header class="checkin-hero">
+        <div class="hero-card">
+          <h1>${escapeHtml(settings.couple_name || "")}</h1>
+          <p>${escapeHtml(settings.hero_message || "")}</p>
+          <div class="hero-meta">
+            <span>${escapeHtml(settings.wedding_date || "")}</span>
+            <span>${escapeHtml(settings.wedding_location || "")}</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="checkin-card">
+        <h2>现场签到</h2>
+        <p class="muted">请填写姓名或手机号完成现场签到。</p>
+        ${
+          error
+            ? `<div class="alert">${escapeHtml(error)}</div>`
+            : ""
+        }
+        ${
+          result
+            ? `<div class="result-card">
+              <div class="result-title">签到成功，欢迎光临！</div>
+              <div class="result-info">
+                <div>
+                  <strong>姓名</strong>
+                  <span>${escapeHtml(result.name || "-")}</span>
+                </div>
+                <div>
+                  <strong>桌号</strong>
+                  <span>${escapeHtml(result.table_no || "未分配")}</span>
+                </div>
+                <div>
+                  <strong>出席人数</strong>
+                  <span>${escapeHtml(result.actual_attendees || "-")}</span>
+                </div>
+              </div>
+            </div>`
+            : ""
+        }
+        <form method="post" action="/checkin" class="form-stack">
+          <label>
+            姓名
+            <input type="text" name="name" placeholder="可填写姓名" />
+          </label>
+          <label>
+            手机号
+            <input type="tel" name="phone" placeholder="可填写手机号" />
+          </label>
+          <label>
+            实际出席人数
+            <input type="number" name="actual_attendees" min="1" value="1" required />
+          </label>
+          <label class="inline">
+            <input type="checkbox" name="confirm_attending" required />
+            我已到场并确认出席
+          </label>
+          <button class="btn primary" type="submit">确认签到</button>
+        </form>
       </section>
     </div>
   </body>
@@ -1015,7 +1232,9 @@ module.exports = {
   renderInvitation,
   renderGuests,
   renderSeatCards,
+  renderAdminCheckins,
   renderAdminLottery,
   renderInvite,
+  renderCheckin,
   renderLottery
 };
