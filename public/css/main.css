@@ -288,6 +288,31 @@ textarea {
   gap: 10px;
 }
 
+.table-guest-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 12px;
+  border: 1px solid #eee1d8;
+  font-size: 13px;
+  color: #4b3c33;
+}
+
+.table-guest-title {
+  width: 100%;
+  font-weight: 600;
+  color: #6c5c53;
+}
+
+.table-guest-name {
+  background: #fff4f7;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #f0e2e7;
+}
+
 .guest-row-alert {
   background: #fff3f0;
 }
@@ -315,6 +340,8 @@ textarea {
   align-items: center;
   justify-content: center;
   text-align: center;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 .table-print-hero {
@@ -362,6 +389,8 @@ textarea {
 
   body {
     background: #ffffff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-actions,
@@ -375,7 +404,9 @@ textarea {
     border-radius: 0;
     padding: 0;
     min-height: auto;
-    background: #ffffff;
+    background: linear-gradient(150deg, #fff8f9, #f8f4ff);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .page-break {

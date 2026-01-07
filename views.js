@@ -424,6 +424,9 @@ const renderGuests = ({ guests, fields, tables }) => {
     ${tableList
       .map((table) => {
         const seatCount = Math.max(Number(table.seats) || 0, 0);
+        const assignedGuests = guests.filter(
+          (guest) => String(guest.table_no || "").trim() === table.table_no
+        );
         return `
       <div class="table-card">
         <div class="table-visual">
@@ -453,6 +456,21 @@ const renderGuests = ({ guests, fields, tables }) => {
           <div class="table-visual-preference">${
             table.preference ? escapeHtml(table.preference) : "暂无偏好"
           }</div>
+        </div>
+        <div class="table-guest-list">
+          <div class="table-guest-title">已分配来宾</div>
+          ${
+            assignedGuests.length
+              ? assignedGuests
+                  .map(
+                    (guest) =>
+                      `<span class="table-guest-name">${escapeHtml(
+                        formatGuestDisplayName(guest)
+                      )}</span>`
+                  )
+                  .join("")
+              : `<span class="muted">暂无来宾</span>`
+          }
         </div>
         <form method="post" action="/admin/tables/${table.id}/update" class="table-form">
           <label>
