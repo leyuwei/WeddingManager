@@ -536,8 +536,13 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
 </section>
 
 <section class="card">
-  <h1>来宾信息统计</h1>
-  <p>可直接编辑来宾信息并保存修改。未分配或桌号不存在的来宾将高亮提醒。</p>
+  <div class="section-header">
+    <div>
+      <h1>来宾信息统计</h1>
+      <p>可直接编辑来宾信息并保存修改。未分配或桌号不存在的来宾将高亮提醒。</p>
+    </div>
+    <a class="btn ghost" href="/admin/guests/export">导出Excel</a>
+  </div>
   <table class="table">
     <thead>
       <tr>

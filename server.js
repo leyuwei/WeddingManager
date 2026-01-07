@@ -394,6 +394,48 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && pathname === "/admin/guests/export") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const fields = store.invitation_fields || [];
+    const header = [
+      "姓名",
+      "手机号",
+      "出席",
+      "席位号",
+      ...fields.map((field) => field.label)
+    ];
+    const rows = (store.guests || []).map((guest) => {
+      const responses = guest.responses || {};
+      const base = [
+        guest.name || "",
+        guest.phone || "",
+        guest.attending ? "是" : "否",
+        guest.table_no || ""
+      ];
+      const extras = fields.map((field) => responses[field.field_key] || "");
+      return [...base, ...extras];
+    });
+    const escapeCsvValue = (value) => {
+      const text = String(value ?? "");
+      if (/[",\n]/.test(text)) {
+        return `"${text.replaceAll('"', '""')}"`;
+      }
+      return text;
+    };
+    const csv = [header, ...rows]
+      .map((row) => row.map(escapeCsvValue).join(","))
+      .join("\n");
+    const filename = `guests-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.writeHead(200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`
+    });
+    res.end(`\uFEFF${csv}`);
+    return;
+  }
+
   if (req.method === "POST" && pathname === "/admin/guests") {
     const session = requireAdmin(req, res);
     if (!session) return;
