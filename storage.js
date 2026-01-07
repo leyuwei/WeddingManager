@@ -40,6 +40,7 @@ const defaultStore = () => ({
   checkins: [],
   prizes: [],
   winners: [],
+  ledger: [],
   settings: {},
   counters: {}
 });
@@ -154,6 +155,7 @@ const seedStore = (store) => {
   store.checkins = store.checkins || [];
   store.prizes = store.prizes || [];
   store.winners = store.winners || [];
+  store.ledger = store.ledger || [];
   store.counters = store.counters || {};
   return store;
 };

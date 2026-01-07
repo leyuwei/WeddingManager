@@ -15,6 +15,7 @@ const {
   renderSeatCards,
   renderAdminCheckins,
   renderAdminLottery,
+  renderLedger,
   renderInvite,
   renderCheckin,
   renderLottery
@@ -73,6 +74,20 @@ const parseBody = (req) =>
       resolve(querystring.parse(data));
     });
   });
+
+const ledgerCategories = [
+  { value: "场地租用", label: "场地租用" },
+  { value: "婚礼仪式", label: "婚礼仪式" },
+  { value: "宾客住宿", label: "宾客住宿" },
+  { value: "礼品奖品", label: "礼品奖品" },
+  { value: "路费餐费", label: "路费餐费" },
+  { value: "礼金红包", label: "礼金红包" },
+  { value: "其它", label: "其它" }
+];
+const ledgerCategoryValues = new Set(
+  ledgerCategories.map((category) => category.value)
+);
+const ledgerDirectionValues = new Set(["income", "expense"]);
 
 const sendResponse = (res, status, body, type = "text/html") => {
   res.writeHead(status, { "Content-Type": `${type}; charset=utf-8` });
@@ -133,6 +148,30 @@ const getCheckedInGuests = (store) => {
 };
 
 const normalizeTableNo = (value) => String(value || "").trim();
+
+const normalizeLedgerCategory = (value) => {
+  const normalized = String(value || "").trim();
+  if (ledgerCategoryValues.has(normalized)) return normalized;
+  return "其它";
+};
+
+const normalizeLedgerDirection = (value) => {
+  const normalized = String(value || "").trim();
+  if (ledgerDirectionValues.has(normalized)) return normalized;
+  return "expense";
+};
+
+const parseLedgerAmount = (value) => {
+  const parsed = Number.parseFloat(String(value || "").trim());
+  if (Number.isNaN(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+const normalizeLedgerDate = (value) => {
+  const normalized = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
+  return new Date().toISOString().slice(0, 10);
+};
 
 const parsePartySize = (value) => {
   const parsed = Number.parseInt(String(value || "").trim(), 10);
@@ -244,7 +283,18 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
-    sendResponse(res, 200, renderAdmins(store.admins));
+    const error = url.searchParams.get("error");
+    const success = url.searchParams.get("success");
+    sendResponse(
+      res,
+      200,
+      renderAdmins({
+        admins: store.admins,
+        currentAdminId: session.adminId,
+        error,
+        success
+      })
+    );
     return;
   }
 
@@ -262,6 +312,49 @@ const handleRequest = async (req, res) => {
       });
       saveStore(store);
     }
+    redirect(res, "/admin/admins");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/admins/change-password") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const currentPassword = String(body.current_password || "");
+    const newPassword = String(body.new_password || "");
+    const confirmPassword = String(body.confirm_password || "");
+    if (!currentPassword || !newPassword) {
+      const message = encodeURIComponent("请填写当前密码与新密码。");
+      redirect(res, `/admin/admins?error=${message}`);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      const message = encodeURIComponent("两次输入的新密码不一致。");
+      redirect(res, `/admin/admins?error=${message}`);
+      return;
+    }
+    const store = loadStore();
+    const admin = store.admins.find((item) => item.id === session.adminId);
+    if (!admin || !verifyPassword(currentPassword, admin.password_hash)) {
+      const message = encodeURIComponent("当前密码不正确。");
+      redirect(res, `/admin/admins?error=${message}`);
+      return;
+    }
+    admin.password_hash = hashPassword(newPassword);
+    saveStore(store);
+    const message = encodeURIComponent("密码已更新。");
+    redirect(res, `/admin/admins?success=${message}`);
+    return;
+  }
+
+  const adminDeleteMatch = pathname.match(/^\/admin\/admins\/(\d+)\/delete$/);
+  if (req.method === "POST" && adminDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const id = Number(adminDeleteMatch[1]);
+    store.admins = store.admins.filter((admin) => admin.id !== id);
+    saveStore(store);
     redirect(res, "/admin/admins");
     return;
   }
@@ -433,6 +526,170 @@ const handleRequest = async (req, res) => {
       "Content-Disposition": `attachment; filename="${filename}"`
     });
     res.end(`\uFEFF${csv}`);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/admin/ledger") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const error = url.searchParams.get("error");
+    const category = String(url.searchParams.get("category") || "").trim();
+    const activeCategory = ledgerCategoryValues.has(category) ? category : "";
+    const entries = [...(store.ledger || [])].sort((a, b) => {
+      const dateA = new Date(a.occurred_at || a.created_at || 0).getTime();
+      const dateB = new Date(b.occurred_at || b.created_at || 0).getTime();
+      if (dateA !== dateB) return dateB - dateA;
+      return (b.id || 0) - (a.id || 0);
+    });
+    sendResponse(
+      res,
+      200,
+      renderLedger({
+        entries,
+        categories: ledgerCategories,
+        activeCategory,
+        error
+      })
+    );
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/admin/ledger/export") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const category = String(url.searchParams.get("category") || "").trim();
+    const activeCategory = ledgerCategoryValues.has(category) ? category : "";
+    const entries = (store.ledger || []).filter((entry) =>
+      activeCategory ? entry.category === activeCategory : true
+    );
+    const header = [
+      "日期",
+      "收支",
+      "类型",
+      "金额",
+      "具体用途",
+      "付款人",
+      "对象",
+      "方式",
+      "备注"
+    ];
+    const rows = entries.map((entry) => [
+      entry.occurred_at || "",
+      entry.direction === "income" ? "收入" : "支出",
+      entry.category || "",
+      entry.amount ?? "",
+      entry.purpose || "",
+      entry.payer || "",
+      entry.payee || "",
+      entry.method || "",
+      entry.note || ""
+    ]);
+    const escapeCsvValue = (value) => {
+      const text = String(value ?? "");
+      if (/[",\n]/.test(text)) {
+        return `"${text.replaceAll('"', '""')}"`;
+      }
+      return text;
+    };
+    const csv = [header, ...rows]
+      .map((row) => row.map(escapeCsvValue).join(","))
+      .join("\n");
+    const filenameParts = ["ledger", new Date().toISOString().slice(0, 10)];
+    if (activeCategory) {
+      filenameParts.push(activeCategory);
+    }
+    const filename = `${filenameParts.join("-")}.csv`;
+    res.writeHead(200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`
+    });
+    res.end(`\uFEFF${csv}`);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/ledger") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const amount = parseLedgerAmount(body.amount);
+    const purpose = String(body.purpose || "").trim();
+    const payer = String(body.payer || "").trim();
+    if (!amount || !purpose || !payer) {
+      const message = encodeURIComponent("请填写金额、用途与付款人。");
+      redirect(res, `/admin/ledger?error=${message}`);
+      return;
+    }
+    const store = loadStore();
+    store.ledger = store.ledger || [];
+    store.ledger.push({
+      id: nextId(store, "ledger"),
+      amount,
+      direction: normalizeLedgerDirection(body.direction),
+      category: normalizeLedgerCategory(body.category),
+      purpose,
+      payer,
+      payee: body.payee || "",
+      method: body.method || "",
+      note: body.note || "",
+      occurred_at: normalizeLedgerDate(body.occurred_at),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+    saveStore(store);
+    redirect(res, "/admin/ledger");
+    return;
+  }
+
+  const ledgerUpdateMatch = pathname.match(/^\/admin\/ledger\/(\d+)\/update$/);
+  if (req.method === "POST" && ledgerUpdateMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    const id = Number(ledgerUpdateMatch[1]);
+    const entry = (store.ledger || []).find((item) => item.id === id);
+    if (!entry) {
+      redirect(res, "/admin/ledger");
+      return;
+    }
+    const amount = parseLedgerAmount(body.amount);
+    const purpose = String(body.purpose || "").trim();
+    const payer = String(body.payer || "").trim();
+    if (!amount || !purpose || !payer) {
+      const message = encodeURIComponent("请完善金额、用途与付款人。");
+      const returnTo = (body.return_to || "").trim();
+      const hash = returnTo ? `#${encodeURIComponent(returnTo)}` : "";
+      redirect(res, `/admin/ledger?error=${message}${hash}`);
+      return;
+    }
+    entry.amount = amount;
+    entry.direction = normalizeLedgerDirection(body.direction);
+    entry.category = normalizeLedgerCategory(body.category);
+    entry.purpose = purpose;
+    entry.payer = payer;
+    entry.payee = body.payee || "";
+    entry.method = body.method || "";
+    entry.note = body.note || "";
+    entry.occurred_at = normalizeLedgerDate(body.occurred_at);
+    entry.updated_at = new Date().toISOString();
+    saveStore(store);
+    const returnTo = (body.return_to || "").trim();
+    const hash = returnTo ? `#${encodeURIComponent(returnTo)}` : "";
+    redirect(res, `/admin/ledger${hash}`);
+    return;
+  }
+
+  const ledgerDeleteMatch = pathname.match(/^\/admin\/ledger\/(\d+)\/delete$/);
+  if (req.method === "POST" && ledgerDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const id = Number(ledgerDeleteMatch[1]);
+    store.ledger = (store.ledger || []).filter((item) => item.id !== id);
+    saveStore(store);
+    redirect(res, "/admin/ledger");
     return;
   }
 
