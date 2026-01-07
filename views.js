@@ -146,6 +146,7 @@ const renderAdmins = (admins) =>
       <tr>
         <th>账号</th>
         <th>创建时间</th>
+        <th>操作</th>
       </tr>
     </thead>
     <tbody>
@@ -155,6 +156,11 @@ const renderAdmins = (admins) =>
       <tr>
         <td>${escapeHtml(admin.username)}</td>
         <td>${escapeHtml(admin.created_at)}</td>
+        <td>
+          <form method="post" action="/admin/admins/${admin.id}/delete" class="inline-form">
+            <button class="btn ghost" type="submit" onclick="return confirm('确认删除该管理员账号吗？');">删除</button>
+          </form>
+        </td>
       </tr>`
         )
         .join("")}

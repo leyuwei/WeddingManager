@@ -305,6 +305,18 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  const adminDeleteMatch = pathname.match(/^\/admin\/admins\/(\d+)\/delete$/);
+  if (req.method === "POST" && adminDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const id = Number(adminDeleteMatch[1]);
+    store.admins = store.admins.filter((admin) => admin.id !== id);
+    saveStore(store);
+    redirect(res, "/admin/admins");
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/admin/invitation") {
     const session = requireAdmin(req, res);
     if (!session) return;
