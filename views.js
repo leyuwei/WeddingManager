@@ -483,6 +483,7 @@ const renderSeatCards = (guests) =>
 <section class="card">
   <h1>席位牌自动生成</h1>
   <p>支持A4横向三折席位牌（折成三角柱），每页仅打印一位来宾。</p>
+  <p class="muted">点击任意席位牌即可单独打印该来宾。</p>
   <div class="seat-actions">
     <button class="btn primary" type="button" onclick="window.print()">一键打印席位牌</button>
   </div>
@@ -520,6 +521,30 @@ const renderSeatCards = (guests) =>
     )
     .join("")}
 </section>
+<script>
+  (() => {
+    const cards = Array.from(document.querySelectorAll(".seat-card"));
+    if (!cards.length) return;
+    const clearSelection = () => {
+      document.body.classList.remove("print-single");
+      cards.forEach((card) => card.classList.remove("seat-card-print"));
+    };
+    const handleAfterPrint = () => {
+      clearSelection();
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
+    cards.forEach((card) => {
+      card.addEventListener("click", () => {
+        cards.forEach((item) =>
+          item.classList.toggle("seat-card-print", item === card)
+        );
+        document.body.classList.add("print-single");
+        window.addEventListener("afterprint", handleAfterPrint);
+        window.print();
+      });
+    });
+  })();
+</script>
 `
   );
 
