@@ -422,6 +422,9 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
+    const proto = req.headers["x-forwarded-proto"] || "http";
+    const host = req.headers.host || "localhost";
+    const inviteUrl = `${proto}://${host}/invite`;
     sendResponse(
       res,
       200,
@@ -430,7 +433,8 @@ const handleRequest = async (req, res) => {
         sections: store.invitation_sections.sort(
           (a, b) => a.sort_order - b.sort_order
         ),
-        fields: store.invitation_fields
+        fields: store.invitation_fields,
+        inviteUrl
       })
     );
     return;

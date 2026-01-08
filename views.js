@@ -307,10 +307,39 @@ ${success ? `<div class="alert" style="background:#e9f7ef;color:#2f8f5f;">${esca
 `
   );
 
-const renderInvitation = ({ settings, sections, fields }) =>
+const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
   adminLayout(
     "请柬设计",
     `
+<section class="card">
+  <div class="section-header">
+    <div>
+      <h1>请柬链接二维码</h1>
+      <p>方便管理员下载或截图，用于分享给亲友。</p>
+    </div>
+  </div>
+  <div class="qr-grid">
+    <div class="qr-card">
+      <h3>电子请柬</h3>
+      <p>扫码即可进入请柬页面</p>
+      <a class="qr-link" href="${escapeHtml(inviteUrl)}" target="_blank">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(
+          inviteUrl
+        )}" alt="请柬二维码" />
+        <span>点击打开请柬</span>
+      </a>
+      <div class="qr-actions">
+        <a class="btn ghost" href="${escapeHtml(
+          inviteUrl
+        )}" target="_blank">打开请柬</a>
+        <a class="btn ghost" href="https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(
+          inviteUrl
+        )}" download="invitation-qr.png">下载二维码</a>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="card">
   <h1>请柬基础信息</h1>
   <form method="post" action="/admin/invitation/settings" class="form-grid">
@@ -706,6 +735,28 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
           const rowClass = hasValidTable ? "" : ' class="guest-row-alert"';
           const isErrorGuest =
             error && Number(errorGuestId) === Number(guest.id);
+          const customInfoItems = fields.map((field) => {
+            const value = (guest.responses || {})[field.field_key] || "";
+            return {
+              field,
+              value: String(value || "")
+            };
+          });
+          const filledCustomInfo = customInfoItems.filter((item) =>
+            item.value.trim()
+          );
+          const customInfoCount = filledCustomInfo.length;
+          const customInfoPreview = filledCustomInfo
+            .slice(0, 2)
+            .map(
+              (item) =>
+                `${escapeHtml(item.field.label)}：${escapeHtml(item.value)}`
+            )
+            .join(" ｜ ");
+          const customInfoSummary = customInfoCount
+            ? `已填写 ${customInfoCount} 项`
+            : "暂无填写";
+          const dialogId = `guest-dialog-${guest.id}`;
           return `
       <tr${rowClass} id="guest-${guest.id}">
         <td>
@@ -756,53 +807,85 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
           }
         </td>
         <td>
-          <div class="form-stack">
-            ${fields
-              .map((field) => {
-                const value =
-                  (guest.responses || {})[field.field_key] || "";
-                if (field.field_type === "textarea") {
-                  return `
-            <label>
-              ${escapeHtml(field.label)}
-              <textarea name="${escapeHtml(field.field_key)}" rows="2" form="guest-form-${guest.id}">${escapeHtml(
-                    value
-                  )}</textarea>
-            </label>`;
-                }
-                if (field.field_type === "select") {
-                  const options = (field.options || "")
-                    .split(",")
-                    .map((option) => option.trim())
-                    .filter(Boolean)
-                    .map((option) => {
-                      const escaped = escapeHtml(option);
-                      return `<option value="${escaped}" ${
-                        option === value ? "selected" : ""
-                      }>${escaped}</option>`;
-                    })
-                    .join("");
-                  return `
-            <label>
-              ${escapeHtml(field.label)}
-              <select name="${escapeHtml(
-                field.field_key
-              )}" form="guest-form-${guest.id}">
-                <option value="">请选择</option>
-                ${options}
-              </select>
-            </label>`;
-                }
-                return `
-            <label>
-              ${escapeHtml(field.label)}
-              <input type="text" name="${escapeHtml(
-                field.field_key
-              )}" value="${escapeHtml(value)}" form="guest-form-${guest.id}" />
-            </label>`;
-              })
-              .join("")}
+          <div class="custom-info-cell">
+            <div>
+              <div class="custom-info-summary">${customInfoSummary}</div>
+              ${
+                customInfoPreview
+                  ? `<div class="custom-info-preview">${customInfoPreview}</div>`
+                  : `<div class="muted">可点击查看/编辑</div>`
+              }
+            </div>
+            <button class="btn ghost small" type="button" data-dialog-target="${dialogId}">查看/编辑</button>
           </div>
+          <dialog class="guest-dialog" id="${dialogId}">
+            <div class="dialog-header">
+              <div>
+                <strong>自定义信息</strong>
+                <div class="muted">${escapeHtml(guest.name)} · ${
+            customInfoCount ? customInfoSummary : "暂无填写"
+          }</div>
+              </div>
+              <button class="btn ghost small" type="button" data-dialog-close>关闭</button>
+            </div>
+            <div class="dialog-body">
+              <div class="form-stack dialog-fields">
+                ${customInfoItems
+                  .map((item) => {
+                    const value = item.value;
+                    const field = item.field;
+                    if (field.field_type === "textarea") {
+                      return `
+                <label>
+                  ${escapeHtml(field.label)}
+                  <textarea name="${escapeHtml(
+                    field.field_key
+                  )}" rows="2" form="guest-form-${guest.id}">${escapeHtml(
+                        value
+                      )}</textarea>
+                </label>`;
+                    }
+                    if (field.field_type === "select") {
+                      const options = (field.options || "")
+                        .split(",")
+                        .map((option) => option.trim())
+                        .filter(Boolean)
+                        .map((option) => {
+                          const escaped = escapeHtml(option);
+                          return `<option value="${escaped}" ${
+                            option === value ? "selected" : ""
+                          }>${escaped}</option>`;
+                        })
+                        .join("");
+                      return `
+                <label>
+                  ${escapeHtml(field.label)}
+                  <select name="${escapeHtml(
+                    field.field_key
+                  )}" form="guest-form-${guest.id}">
+                    <option value="">请选择</option>
+                    ${options}
+                  </select>
+                </label>`;
+                    }
+                    return `
+                <label>
+                  ${escapeHtml(field.label)}
+                  <input type="text" name="${escapeHtml(
+                    field.field_key
+                  )}" value="${escapeHtml(
+                      value
+                    )}" form="guest-form-${guest.id}" />
+                </label>`;
+                  })
+                  .join("")}
+              </div>
+            </div>
+            <div class="dialog-actions">
+              <button class="btn ghost" type="button" data-dialog-close>关闭</button>
+              <button class="btn primary" type="submit" form="guest-form-${guest.id}">保存修改</button>
+            </div>
+          </dialog>
         </td>
         <td>
           <form method="post" action="/admin/guests/${
@@ -845,6 +928,49 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         target.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     }
+
+    const dialogTriggers = Array.from(
+      document.querySelectorAll("[data-dialog-target]")
+    );
+    dialogTriggers.forEach((trigger) => {
+      trigger.addEventListener("click", () => {
+        const dialogId = trigger.getAttribute("data-dialog-target");
+        const dialog = dialogId ? document.getElementById(dialogId) : null;
+        if (!dialog) return;
+        if (typeof dialog.showModal === "function") {
+          dialog.showModal();
+        } else {
+          dialog.setAttribute("open", "");
+        }
+      });
+    });
+
+    const closeButtons = Array.from(
+      document.querySelectorAll("[data-dialog-close]")
+    );
+    closeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const dialog = button.closest("dialog");
+        if (!dialog) return;
+        if (typeof dialog.close === "function") {
+          dialog.close();
+        } else {
+          dialog.removeAttribute("open");
+        }
+      });
+    });
+
+    const dialogs = Array.from(document.querySelectorAll("dialog"));
+    dialogs.forEach((dialog) => {
+      dialog.addEventListener("click", (event) => {
+        if (event.target !== dialog) return;
+        if (typeof dialog.close === "function") {
+          dialog.close();
+        } else {
+          dialog.removeAttribute("open");
+        }
+      });
+    });
   })();
 </script>
 `
