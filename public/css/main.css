@@ -484,6 +484,18 @@ textarea {
   gap: 8px;
 }
 
+.guest-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.guest-actions .inline-form {
+  flex-direction: row;
+  align-items: center;
+}
+
 .table-actions {
   display: flex;
   flex-wrap: wrap;

@@ -888,15 +888,17 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
           </dialog>
         </td>
         <td>
-          <form method="post" action="/admin/guests/${
-            guest.id
-          }/update" class="inline-form" id="guest-form-${guest.id}">
-            <input type="hidden" name="return_to" value="guest-${guest.id}" />
-            <button class="btn ghost" type="submit">保存</button>
-          </form>
-          <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
-            <button class="btn ghost" type="submit" onclick="return confirm('确认删除该来宾吗？');">删除</button>
-          </form>
+          <div class="guest-actions">
+            <form method="post" action="/admin/guests/${
+              guest.id
+            }/update" class="inline-form" id="guest-form-${guest.id}">
+              <input type="hidden" name="return_to" value="guest-${guest.id}" />
+              <button class="btn ghost" type="submit">保存</button>
+            </form>
+            <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
+              <button class="btn ghost" type="submit" onclick="return confirm('确认删除该来宾吗？');">删除</button>
+            </form>
+          </div>
         </td>
       </tr>`;
         })
