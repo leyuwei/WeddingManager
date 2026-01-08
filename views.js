@@ -90,36 +90,149 @@ const renderLogin = (error) => `
 </html>
 `;
 
-const renderDashboard = ({ guestCount, attendingCount }) =>
-  adminLayout(
+const renderDashboard = ({
+  guestInviteCount,
+  registeredGuestCount,
+  checkedInGuestCount,
+  pendingCheckinGuestCount,
+  confirmedInviteCount,
+  confirmedGuestCount,
+  assignedTableCount,
+  totalTableCount,
+  prizeCount,
+  winnerCount,
+  inviteUrl,
+  checkinUrl
+}) => {
+  const checkinProgress = registeredGuestCount
+    ? Math.min(
+        100,
+        Math.round((checkedInGuestCount / registeredGuestCount) * 100)
+      )
+    : 0;
+  return adminLayout(
     "仪表盘",
     `
 <section class="hero">
-  <h1>婚礼全流程控制中心</h1>
-  <p>让每一个环节井然有序，打造极致浪漫体验。</p>
+  <div class="hero-content">
+    <div>
+      <h1>婚礼全流程控制中心</h1>
+      <p>让每一个环节井然有序，打造极致浪漫体验。</p>
+    </div>
+    <div class="hero-actions">
+      <a class="btn primary" href="/lottery" target="_blank">进入抽奖大屏幕</a>
+      <a class="btn ghost" href="/admin/checkins">查看签到现场</a>
+    </div>
+  </div>
 </section>
+
 <section class="stats-grid">
-  <div class="stat-card">
-    <h2>${guestCount}</h2>
-    <p>已收到来宾信息</p>
+  <div class="stat-card highlight">
+    <h2>${registeredGuestCount}</h2>
+    <p>来宾登记人数</p>
+    <span class="meta">按请柬登记人数汇总</span>
   </div>
   <div class="stat-card accent">
-    <h2>${attendingCount}</h2>
-    <p>确认出席</p>
+    <h2>${checkedInGuestCount}</h2>
+    <p>已签到人数</p>
+    <span class="meta">现场实际签到</span>
   </div>
   <div class="stat-card">
-    <h2>✨</h2>
-    <p>请柬、席位、摇奖一站式管理</p>
+    <h2>${pendingCheckinGuestCount}</h2>
+    <p>未签到人数</p>
+    <span class="meta">预计仍在途中</span>
+  </div>
+  <div class="stat-card soft">
+    <h2>${guestInviteCount}</h2>
+    <p>请柬登记份数</p>
+    <span class="meta">含携伴信息</span>
   </div>
 </section>
-<section class="quick-links">
-  <a class="tile" href="/invite" target="_blank">查看请柬效果</a>
-  <a class="tile" href="/lottery" target="_blank">大屏抽奖页面</a>
-  <a class="tile" href="/admin/checkins">现场签到管理</a>
-  <a class="tile" href="/admin/guests">管理来宾信息</a>
+
+<section class="dashboard-grid">
+  <div class="card dashboard-card">
+    <div class="card-header">
+      <div>
+        <h2>扫码入口一览</h2>
+        <p class="muted">点击二维码即可在新窗口模拟访问页面。</p>
+      </div>
+      <div class="progress-indicator">
+        <span>签到进度</span>
+        <strong>${checkinProgress}%</strong>
+      </div>
+    </div>
+    <div class="progress-bar">
+      <span style="width:${checkinProgress}%;"></span>
+    </div>
+    <div class="qr-grid">
+      <div class="qr-card">
+        <h3>电子请柬</h3>
+        <p>发送给亲友，支持在线回执</p>
+        <a class="qr-link" href="${escapeHtml(inviteUrl)}" target="_blank">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
+            inviteUrl
+          )}" alt="请柬二维码" />
+          <span>点击打开请柬</span>
+        </a>
+        <div class="qr-actions">
+          <a class="btn ghost" href="${escapeHtml(
+            inviteUrl
+          )}" target="_blank">查看请柬</a>
+        </div>
+      </div>
+      <div class="qr-card">
+        <h3>现场签到</h3>
+        <p>放置签到台，现场扫码登记</p>
+        <a class="qr-link" href="${escapeHtml(checkinUrl)}" target="_blank">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
+            checkinUrl
+          )}" alt="签到二维码" />
+          <span>点击打开签到</span>
+        </a>
+        <div class="qr-actions">
+          <a class="btn ghost" href="${escapeHtml(
+            checkinUrl
+          )}" target="_blank">打开签到页</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card dashboard-card">
+    <h2>现场运营摘要</h2>
+    <p class="muted">聚焦确认、席位、抽奖等关键节点。</p>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <h3>${confirmedGuestCount}</h3>
+        <p>确认出席人数</p>
+        <span class="meta">${confirmedInviteCount} 份请柬已确认</span>
+      </div>
+      <div class="summary-card">
+        <h3>${Math.max(guestInviteCount - confirmedInviteCount, 0)}</h3>
+        <p>待确认请柬</p>
+        <span class="meta">可提醒补充回执</span>
+      </div>
+      <div class="summary-card">
+        <h3>${assignedTableCount}</h3>
+        <p>已分配席位请柬</p>
+        <span class="meta">共 ${totalTableCount} 桌</span>
+      </div>
+      <div class="summary-card">
+        <h3>${winnerCount}</h3>
+        <p>已抽出奖品</p>
+        <span class="meta">共设置 ${prizeCount} 个奖品</span>
+      </div>
+    </div>
+    <div class="quick-links">
+      <a class="tile" href="/admin/guests">管理来宾信息</a>
+      <a class="tile" href="/admin/checkins">现场签到管理</a>
+      <a class="tile" href="/admin/seat-cards">批量打印席位牌</a>
+      <a class="tile" href="/admin/lottery">现场摇奖设置</a>
+    </div>
+  </div>
 </section>
 `
   );
+};
 
 const renderAdmins = ({ admins, currentAdminId, error, success }) =>
   adminLayout(

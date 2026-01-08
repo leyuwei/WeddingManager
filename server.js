@@ -288,12 +288,52 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
-    const guestCount = store.guests.length;
-    const attendingCount = store.guests.filter((g) => g.attending).length;
+    const guestInviteCount = store.guests.length;
+    const registeredGuestCount = store.guests.reduce(
+      (sum, guest) => sum + getGuestPartySizeFromResponses(guest.responses || {}),
+      0
+    );
+    const confirmedInvites = store.guests.filter((g) => g.attending);
+    const confirmedInviteCount = confirmedInvites.length;
+    const confirmedGuestCount = confirmedInvites.reduce(
+      (sum, guest) => sum + getGuestPartySizeFromResponses(guest.responses || {}),
+      0
+    );
+    const checkedInGuestCount = (store.checkins || []).reduce(
+      (sum, checkin) => sum + parsePartySize(checkin.actual_attendees),
+      0
+    );
+    const pendingCheckinGuestCount = Math.max(
+      registeredGuestCount - checkedInGuestCount,
+      0
+    );
+    const assignedTableCount = store.guests.filter((guest) =>
+      normalizeTableNo(guest.table_no)
+    ).length;
+    const totalTableCount = store.tables.length;
+    const prizeCount = store.prizes.length;
+    const winnerCount = store.winners.length;
+    const proto = req.headers["x-forwarded-proto"] || "http";
+    const host = req.headers.host || "localhost";
+    const inviteUrl = `${proto}://${host}/invite`;
+    const checkinUrl = `${proto}://${host}/checkin`;
     sendResponse(
       res,
       200,
-      renderDashboard({ guestCount, attendingCount })
+      renderDashboard({
+        guestInviteCount,
+        registeredGuestCount,
+        checkedInGuestCount,
+        pendingCheckinGuestCount,
+        confirmedInviteCount,
+        confirmedGuestCount,
+        assignedTableCount,
+        totalTableCount,
+        prizeCount,
+        winnerCount,
+        inviteUrl,
+        checkinUrl
+      })
     );
     return;
   }
