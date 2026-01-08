@@ -1214,7 +1214,8 @@ const renderAdminCheckins = ({
   totalGuests,
   checkedInCount,
   checkedInGuests,
-  pendingGuests
+  pendingGuests,
+  tables
 }) =>
   adminLayout(
     "现场签到",
@@ -1333,7 +1334,21 @@ const renderAdminCheckins = ({
       <p class="muted" id="checkinEditName"></p>
       <label>
         席位号
-        <input type="text" name="table_no" id="checkinEditTableNo" />
+        <select name="table_no" id="checkinEditTableNo">
+          <option value="">未分配</option>
+          ${(tables || [])
+            .map((table) => {
+              const tableValue = String(table.table_no || "").trim();
+              if (!tableValue) return "";
+              const nickname = table.nickname
+                ? ` · ${escapeHtml(table.nickname)}`
+                : "";
+              return `<option value="${escapeHtml(
+                tableValue
+              )}">桌 ${escapeHtml(tableValue)}${nickname}</option>`;
+            })
+            .join("")}
+        </select>
       </label>
       <label>
         实际出席人数

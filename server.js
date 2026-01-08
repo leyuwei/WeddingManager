@@ -986,7 +986,8 @@ const handleRequest = async (req, res) => {
         totalGuests: store.guests.length,
         checkedInCount: checkedInGuests.length,
         checkedInGuests,
-        pendingGuests
+        pendingGuests,
+        tables: sortTables(store.tables)
       })
     );
     return;
