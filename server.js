@@ -805,11 +805,16 @@ const handleRequest = async (req, res) => {
   if (req.method === "POST" && guestDeleteMatch) {
     const session = requireAdmin(req, res);
     if (!session) return;
+    const body = await parseBody(req);
     const store = loadStore();
     const id = Number(guestDeleteMatch[1]);
     store.guests = store.guests.filter((guest) => guest.id !== id);
+    store.checkins = (store.checkins || []).filter(
+      (checkin) => checkin.guest_id !== id
+    );
     saveStore(store);
-    redirect(res, "/admin/guests");
+    const returnTo = (body.return_to || "").trim();
+    redirect(res, returnTo || "/admin/guests");
     return;
   }
 
@@ -1112,8 +1117,9 @@ const handleRequest = async (req, res) => {
 
   if (req.method === "POST" && pathname === "/checkin") {
     const body = await parseBody(req);
-    const nameInput = (body.name || "").trim();
-    const phoneInput = (body.phone || "").trim();
+    const lookupInput = (body.lookup || "").trim();
+    const normalizedLookup = lookupInput.replace(/\s+/g, "");
+    const isLikelyPhone = /^\d{6,}$/.test(normalizedLookup);
     const confirmAttending = Boolean(body.confirm_attending);
     const forceNew = body.force_new === "1";
     const actualAttendees = Math.max(
@@ -1122,12 +1128,11 @@ const handleRequest = async (req, res) => {
     );
     const store = loadStore();
     const formValues = {
-      name: nameInput,
-      phone: phoneInput,
+      lookup: lookupInput,
       actual_attendees: String(actualAttendees),
       confirm_attending: confirmAttending
     };
-    if (!nameInput && !phoneInput) {
+    if (!lookupInput) {
       sendResponse(
         res,
         200,
@@ -1155,38 +1160,23 @@ const handleRequest = async (req, res) => {
       );
       return;
     }
-    const nameMatches = nameInput
-      ? store.guests.filter((item) => item.name === nameInput)
+    const phoneMatches = normalizedLookup
+      ? store.guests.filter((item) => item.phone === normalizedLookup)
       : [];
-    const phoneMatches = phoneInput
-      ? store.guests.filter((item) => item.phone === phoneInput)
+    const nameMatches = lookupInput
+      ? store.guests.filter((item) => item.name === lookupInput)
       : [];
-    let guest = null;
-    if (nameInput && phoneInput) {
-      guest = store.guests.find(
-        (item) => item.name === nameInput && item.phone === phoneInput
-      );
-    } else if (phoneInput) {
-      guest = phoneMatches[0] || null;
-    } else if (nameInput) {
-      guest = nameMatches[0] || null;
-    }
+    const matchMap = new Map();
+    [...phoneMatches, ...nameMatches].forEach((item) => {
+      matchMap.set(item.id, item);
+    });
+    const uniqueMatches = Array.from(matchMap.values());
+    let guest = uniqueMatches.length === 1 ? uniqueMatches[0] : null;
     if (!guest && !forceNew) {
-      let message = "未在请柬登记名单中出现，是否填写错误？是否之前由其他亲朋代为登记过？";
-      if (nameInput && phoneInput) {
-        if (nameMatches.length && !phoneMatches.length) {
-          message = "姓名匹配到登记名单，但手机号不一致，请确认是否输入错误。";
-        } else if (phoneMatches.length && !nameMatches.length) {
-          message = "手机号匹配到登记名单，但姓名不一致，请确认是否输入错误。";
-        } else if (nameMatches.length && phoneMatches.length) {
-          message = "姓名与手机号分别匹配到不同来宾，请确认是否输入错误。";
-        }
-      } else if (nameMatches.length > 1) {
-        message = "存在多位同名来宾，请补充手机号以确认身份。";
-      } else if (phoneMatches.length > 1) {
-        message = "该手机号匹配到多位来宾，请联系工作人员确认。";
-      } else if (nameMatches.length === 1 || phoneMatches.length === 1) {
-        message = "仅找到部分匹配信息，请确认是否输入错误。";
+      let message =
+        "未在请柬登记名单中出现，是否填写错误？若确认为新来宾可继续登记。";
+      if (uniqueMatches.length > 1) {
+        message = "匹配到多位来宾，请联系工作人员确认，或登记为新来宾。";
       }
       sendResponse(
         res,
@@ -1202,16 +1192,18 @@ const handleRequest = async (req, res) => {
       return;
     }
     if (guest) {
-      if (nameInput) guest.name = nameInput;
-      if (phoneInput) guest.phone = phoneInput;
+      if (isLikelyPhone) {
+        guest.phone = normalizedLookup;
+      } else {
+        guest.name = lookupInput;
+      }
       guest.attending = true;
       guest.updated_at = new Date().toISOString();
     } else {
-      const fallbackName = nameInput || phoneInput || "来宾";
       guest = {
         id: nextId(store, "guests"),
-        name: fallbackName,
-        phone: phoneInput,
+        name: isLikelyPhone ? "来宾" : lookupInput,
+        phone: isLikelyPhone ? normalizedLookup : "",
         attending: true,
         responses: {},
         table_no: "",
@@ -1219,7 +1211,7 @@ const handleRequest = async (req, res) => {
       };
       store.guests.push(guest);
     }
-    upsertCheckin(store, guest.id, actualAttendees);
+    const checkinRecord = upsertCheckin(store, guest.id, actualAttendees);
     saveStore(store);
     sendResponse(
       res,
@@ -1230,7 +1222,8 @@ const handleRequest = async (req, res) => {
         result: {
           name: guest.name,
           table_no: guest.table_no || "未分配",
-          actual_attendees: actualAttendees
+          actual_attendees: actualAttendees,
+          checked_in_at: checkinRecord.checked_in_at
         },
         prompt: null,
         formValues

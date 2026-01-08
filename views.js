@@ -1289,6 +1289,7 @@ const renderAdminCheckins = ({
         <th>席位号</th>
         <th>实际人数</th>
         <th>签到时间</th>
+        <th>操作</th>
       </tr>
     </thead>
     <tbody>
@@ -1303,10 +1304,17 @@ const renderAdminCheckins = ({
         <td>${escapeHtml(guest.table_no || "未分配")}</td>
         <td>${escapeHtml(guest.checkin?.actual_attendees || "-")}</td>
         <td>${escapeHtml(guest.checkin?.checked_in_at || "-")}</td>
+        <td>
+          <a class="btn ghost" href="/admin/guests#guest-${guest.id}">编辑</a>
+          <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
+            <input type="hidden" name="return_to" value="/admin/checkins" />
+            <button class="btn ghost" type="submit" onclick="return confirm('确认删除该来宾吗？');">删除</button>
+          </form>
+        </td>
       </tr>`
               )
               .join("")
-          : `<tr><td colspan="5" class="muted">暂无来宾完成签到</td></tr>`
+          : `<tr><td colspan="6" class="muted">暂无来宾完成签到</td></tr>`
       }
     </tbody>
   </table>
@@ -1486,7 +1494,7 @@ const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
 
       <section class="checkin-card">
         <h2>现场签到</h2>
-        <p class="muted">请填写姓名或手机号完成现场签到。</p>
+        <p class="muted">请输入姓名或手机号完成现场签到。</p>
         <div class="notice">签到信息将用于现场抽奖，请谨慎确认填写。</div>
         ${
           error
@@ -1502,11 +1510,8 @@ const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
                 <a class="btn ghost" href="/checkin">重新填写</a>
                 <form method="post" action="/checkin">
                   <input type="hidden" name="force_new" value="1" />
-                  <input type="hidden" name="name" value="${escapeHtml(
-                    formValues?.name || ""
-                  )}" />
-                  <input type="hidden" name="phone" value="${escapeHtml(
-                    formValues?.phone || ""
+                  <input type="hidden" name="lookup" value="${escapeHtml(
+                    formValues?.lookup || ""
                   )}" />
                   <input type="hidden" name="actual_attendees" value="${escapeHtml(
                     formValues?.actual_attendees || "1"
@@ -1535,21 +1540,43 @@ const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
                   <strong>出席人数</strong>
                   <span>${escapeHtml(result.actual_attendees || "-")}</span>
                 </div>
+                <div>
+                  <strong>签到时间</strong>
+                  <span>${escapeHtml(result.checked_in_at || "-")}</span>
+                </div>
+              </div>
+            </div>
+            <div class="souvenir-section">
+              <div class="souvenir-title">签到纪念卡</div>
+              <div class="souvenir-card" data-couple="${escapeHtml(
+                settings.couple_name || ""
+              )}" data-location="${escapeHtml(
+                settings.wedding_location || ""
+              )}" data-date="${escapeHtml(
+                settings.wedding_date || ""
+              )}" data-guest="${escapeHtml(
+                result.name || ""
+              )}" data-time="${escapeHtml(
+                result.checked_in_at || ""
+              )}" data-table="${escapeHtml(
+                result.table_no || "未分配"
+              )}" data-attendees="${escapeHtml(
+                result.actual_attendees || "1"
+              )}">
+                <canvas id="souvenirCanvas" width="720" height="960"></canvas>
+              </div>
+              <div class="souvenir-actions">
+                <a class="btn primary" id="downloadSouvenir" href="#" download="签到纪念卡.png">下载纪念卡</a>
+                <p class="muted">提示：可长按图片保存或截图留念。</p>
               </div>
             </div>`
             : ""
         }
         <form method="post" action="/checkin" class="form-stack">
           <label>
-            姓名
-            <input type="text" name="name" placeholder="可填写姓名" value="${escapeHtml(
-              formValues?.name || ""
-            )}" />
-          </label>
-          <label>
-            手机号
-            <input type="tel" name="phone" placeholder="可填写手机号" value="${escapeHtml(
-              formValues?.phone || ""
+            姓名或手机号
+            <input type="text" name="lookup" placeholder="请输入姓名或手机号" value="${escapeHtml(
+              formValues?.lookup || ""
             )}" />
           </label>
           <label>
@@ -1568,6 +1595,121 @@ const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
         </form>
       </section>
     </div>
+    ${
+      result
+        ? `<script>
+      (() => {
+        const card = document.querySelector(".souvenir-card");
+        const canvas = document.getElementById("souvenirCanvas");
+        if (!card || !canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        const data = {
+          couple: card.dataset.couple || "",
+          location: card.dataset.location || "",
+          date: card.dataset.date || "",
+          guest: card.dataset.guest || "",
+          time: card.dataset.time || "",
+          table: card.dataset.table || "",
+          attendees: card.dataset.attendees || ""
+        };
+
+        const toLocalTime = (value) => {
+          if (!value) return "";
+          const parsed = new Date(value);
+          if (Number.isNaN(parsed.getTime())) return value;
+          return parsed.toLocaleString("zh-CN", { hour12: false });
+        };
+
+        const width = canvas.width;
+        const height = canvas.height;
+        const radius = 32;
+        ctx.clearRect(0, 0, width, height);
+
+        const gradient = ctx.createLinearGradient(0, 0, width, height);
+        gradient.addColorStop(0, "#fff1f6");
+        gradient.addColorStop(0.5, "#f5f7ff");
+        gradient.addColorStop(1, "#fef9f2");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, width, height);
+
+        const roundRect = (x, y, w, h, r) => {
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.lineTo(x + w - r, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+          ctx.lineTo(x + w, y + h - r);
+          ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+          ctx.lineTo(x + r, y + h);
+          ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+          ctx.lineTo(x, y + r);
+          ctx.quadraticCurveTo(x, y, x + r, y);
+          ctx.closePath();
+        };
+
+        ctx.save();
+        roundRect(56, 80, width - 112, height - 160, radius);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.88)";
+        ctx.shadowColor = "rgba(0, 0, 0, 0.1)";
+        ctx.shadowBlur = 24;
+        ctx.fill();
+        ctx.restore();
+
+        ctx.fillStyle = "#5c3d45";
+        ctx.font = "bold 36px 'Playfair Display', 'PingFang SC', serif";
+        ctx.textAlign = "center";
+        ctx.fillText("婚礼纪念卡", width / 2, 170);
+
+        ctx.font = "600 28px 'PingFang SC', 'Inter', sans-serif";
+        ctx.fillStyle = "#7a5760";
+        ctx.fillText(data.couple || "新人姓名", width / 2, 225);
+
+        ctx.font = "500 20px 'PingFang SC', 'Inter', sans-serif";
+        ctx.fillStyle = "#9b7a84";
+        ctx.fillText(data.date || "婚礼日期", width / 2, 262);
+        ctx.fillText(data.location || "婚礼地点", width / 2, 292);
+
+        const infoItems = [
+          { label: "来宾姓名", value: data.guest || "来宾" },
+          { label: "签到时间", value: toLocalTime(data.time) || "-" },
+          { label: "席位号", value: data.table || "未分配" },
+          { label: "出席人数", value: data.attendees || "-" }
+        ];
+
+        const startY = 380;
+        const boxHeight = 110;
+        infoItems.forEach((item, index) => {
+          const y = startY + index * boxHeight;
+          ctx.save();
+          roundRect(120, y, width - 240, 86, 20);
+          ctx.fillStyle = "#fdf6f8";
+          ctx.shadowColor = "rgba(255, 182, 193, 0.3)";
+          ctx.shadowBlur = 12;
+          ctx.fill();
+          ctx.restore();
+
+          ctx.fillStyle = "#8a6b73";
+          ctx.font = "600 18px 'PingFang SC', 'Inter', sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillText(item.label, 160, y + 30);
+          ctx.fillStyle = "#4f3239";
+          ctx.font = "600 24px 'PingFang SC', 'Inter', sans-serif";
+          ctx.fillText(item.value, 160, y + 62);
+        });
+
+        ctx.fillStyle = "#b08d96";
+        ctx.font = "500 18px 'PingFang SC', 'Inter', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("愿今日美好永存 · 感谢您的到来", width / 2, height - 110);
+
+        const link = document.getElementById("downloadSouvenir");
+        if (link) {
+          link.href = canvas.toDataURL("image/png");
+        }
+      })();
+    </script>`
+        : ""
+    }
   </body>
 </html>
 `;

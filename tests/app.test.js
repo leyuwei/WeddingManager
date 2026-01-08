@@ -91,8 +91,7 @@ test("warns when check-in guest is not in the registered list", async () => {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      name: "未登记来宾",
-      phone: "13900000001",
+      lookup: "未登记来宾",
       confirm_attending: "on",
       actual_attendees: "1"
     })
@@ -102,7 +101,7 @@ test("warns when check-in guest is not in the registered list", async () => {
   assert.ok(text.includes("未在请柬登记名单中出现"));
 });
 
-test("warns when name matches but phone differs on check-in", async () => {
+test("warns when multiple guests share the same lookup on check-in", async () => {
   const rsvpResponse = await fetch(`${baseUrl}/invite/rsvp`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -115,19 +114,30 @@ test("warns when name matches but phone differs on check-in", async () => {
   });
   assert.strictEqual(rsvpResponse.status, 302);
 
-  const response = await fetch(`${baseUrl}/checkin`, {
+  const rsvpResponseTwo = await fetch(`${baseUrl}/invite/rsvp`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       name: "李四",
       phone: "13800000002",
+      attending: "on"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(rsvpResponseTwo.status, 302);
+
+  const response = await fetch(`${baseUrl}/checkin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      lookup: "李四",
       confirm_attending: "on",
       actual_attendees: "1"
     })
   });
   const text = await response.text();
   assert.strictEqual(response.status, 200);
-  assert.ok(text.includes("手机号不一致"));
+  assert.ok(text.includes("匹配到多位来宾"));
 });
 
 test("allows forcing new guest creation after check-in warning", async () => {
@@ -135,8 +145,7 @@ test("allows forcing new guest creation after check-in warning", async () => {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      name: "临时来宾",
-      phone: "13900000003",
+      lookup: "临时来宾",
       confirm_attending: "on",
       actual_attendees: "2",
       force_new: "1"
