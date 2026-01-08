@@ -148,10 +148,25 @@ test("allows forcing new guest creation after check-in warning", async () => {
       lookup: "临时来宾",
       confirm_attending: "on",
       actual_attendees: "2",
-      force_new: "1"
+      start_new: "1"
     })
   });
   const text = await response.text();
   assert.strictEqual(response.status, 200);
-  assert.ok(text.includes("签到成功"));
+  assert.ok(text.includes("登记新来宾信息"));
+
+  const confirmResponse = await fetch(`${baseUrl}/checkin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      new_guest: "1",
+      name: "临时来宾",
+      phone: "13900000003",
+      confirm_attending: "on",
+      actual_attendees: "2"
+    })
+  });
+  const confirmText = await confirmResponse.text();
+  assert.strictEqual(confirmResponse.status, 200);
+  assert.ok(confirmText.includes("签到成功"));
 });

@@ -1305,11 +1305,20 @@ const renderAdminCheckins = ({
         <td>${escapeHtml(guest.checkin?.actual_attendees || "-")}</td>
         <td>${escapeHtml(guest.checkin?.checked_in_at || "-")}</td>
         <td>
-          <a class="btn ghost" href="/admin/guests#guest-${guest.id}">编辑</a>
-          <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
-            <input type="hidden" name="return_to" value="/admin/checkins" />
-            <button class="btn ghost" type="submit" onclick="return confirm('确认删除该来宾吗？');">删除</button>
-          </form>
+          <div class="table-actions">
+            <button
+              class="btn ghost"
+              type="button"
+              data-checkin-edit="true"
+              data-guest-id="${guest.id}"
+              data-guest-name="${escapeHtml(guest.name || "-")}"
+              data-table-no="${escapeHtml(guest.table_no || "")}"
+              data-attendees="${escapeHtml(guest.checkin?.actual_attendees || "1")}"
+            >编辑</button>
+            <form method="post" action="/admin/checkins/${guest.id}/cancel" class="inline-form">
+              <button class="btn ghost" type="submit" onclick="return confirm('确认取消该来宾签到记录吗？');">取消签到</button>
+            </form>
+          </div>
         </td>
       </tr>`
               )
@@ -1318,6 +1327,24 @@ const renderAdminCheckins = ({
       }
     </tbody>
   </table>
+  <dialog class="modal" id="checkinEditModal">
+    <form method="post" class="form-stack" id="checkinEditForm">
+      <h3>编辑签到信息</h3>
+      <p class="muted" id="checkinEditName"></p>
+      <label>
+        席位号
+        <input type="text" name="table_no" id="checkinEditTableNo" />
+      </label>
+      <label>
+        实际出席人数
+        <input type="number" name="actual_attendees" id="checkinEditAttendees" min="1" value="1" required />
+      </label>
+      <div class="table-actions">
+        <button class="btn ghost" type="button" data-modal-close="true">取消</button>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
 </section>
 
 <section class="card">
@@ -1350,6 +1377,44 @@ const renderAdminCheckins = ({
     </tbody>
   </table>
 </section>
+<script>
+  (() => {
+    const modal = document.getElementById("checkinEditModal");
+    const form = document.getElementById("checkinEditForm");
+    const nameEl = document.getElementById("checkinEditName");
+    const tableInput = document.getElementById("checkinEditTableNo");
+    const attendeesInput = document.getElementById("checkinEditAttendees");
+    if (!modal || !form || !nameEl || !tableInput || !attendeesInput) return;
+    const buttons = Array.from(
+      document.querySelectorAll("button[data-checkin-edit='true']")
+    );
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const guestId = button.dataset.guestId;
+        nameEl.textContent = button.dataset.guestName || "";
+        tableInput.value = button.dataset.tableNo || "";
+        attendeesInput.value = button.dataset.attendees || "1";
+        form.action = "/admin/checkins/" + guestId + "/update";
+        if (typeof modal.showModal === "function") {
+          modal.showModal();
+        } else {
+          modal.setAttribute("open", "true");
+        }
+      });
+    });
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        modal.close();
+      }
+    });
+    const closeButton = modal.querySelector("[data-modal-close='true']");
+    if (closeButton) {
+      closeButton.addEventListener("click", () => {
+        modal.close();
+      });
+    }
+  })();
+</script>
 `
   );
 
@@ -1467,7 +1532,15 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
 </html>
 `;
 
-const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
+const renderCheckin = ({
+  settings,
+  fields,
+  error,
+  result,
+  prompt,
+  formValues,
+  newGuestForm
+}) => `
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -1509,7 +1582,7 @@ const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
               <div class="prompt-actions">
                 <a class="btn ghost" href="/checkin">重新填写</a>
                 <form method="post" action="/checkin">
-                  <input type="hidden" name="force_new" value="1" />
+                  <input type="hidden" name="start_new" value="1" />
                   <input type="hidden" name="lookup" value="${escapeHtml(
                     formValues?.lookup || ""
                   )}" />
@@ -1517,9 +1590,94 @@ const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
                     formValues?.actual_attendees || "1"
                   )}" />
                   <input type="hidden" name="confirm_attending" value="on" />
-                  <button class="btn primary" type="submit">作为新增来宾签到</button>
+                  <button class="btn primary" type="submit">登记新来宾</button>
                 </form>
               </div>
+            </div>`
+            : ""
+        }
+        ${
+          newGuestForm
+            ? `<div class="prompt-card">
+              <div class="prompt-title">登记新来宾信息</div>
+              <p class="muted">请按照请柬模板填写信息后继续签到。</p>
+              <form method="post" action="/checkin" class="form-stack">
+                <input type="hidden" name="new_guest" value="1" />
+                <input type="hidden" name="actual_attendees" value="${escapeHtml(
+                  formValues?.actual_attendees || "1"
+                )}" />
+                <label>
+                  姓名
+                  <input type="text" name="name" value="${escapeHtml(
+                    formValues?.name || ""
+                  )}" required />
+                </label>
+                <label>
+                  手机号
+                  <input type="tel" name="phone" value="${escapeHtml(
+                    formValues?.phone || ""
+                  )}" required />
+                </label>
+                ${(fields || [])
+                  .map((field) => {
+                    if (field.field_type === "textarea") {
+                      return `
+                <label>
+                  ${escapeHtml(field.label)}
+                  <textarea name="${escapeHtml(
+                    field.field_key
+                  )}" rows="2" ${field.required ? "required" : ""}>${escapeHtml(
+                        formValues?.[field.field_key] || ""
+                      )}</textarea>
+                </label>`;
+                    }
+                    if (field.field_type === "select") {
+                      const options = (field.options || "")
+                        .split(",")
+                        .map((option) => option.trim())
+                        .filter(Boolean)
+                        .map((option) => {
+                          const escaped = escapeHtml(option);
+                          const selected =
+                            option === formValues?.[field.field_key]
+                              ? "selected"
+                              : "";
+                          return `<option value="${escaped}" ${selected}>${escaped}</option>`;
+                        })
+                        .join("");
+                      return `
+                <label>
+                  ${escapeHtml(field.label)}
+                  <select name="${escapeHtml(
+                    field.field_key
+                  )}" ${field.required ? "required" : ""}>
+                    <option value="">请选择</option>
+                    ${options}
+                  </select>
+                </label>`;
+                    }
+                    return `
+                <label>
+                  ${escapeHtml(field.label)}
+                  <input type="text" name="${escapeHtml(
+                    field.field_key
+                  )}" value="${escapeHtml(
+                      formValues?.[field.field_key] || ""
+                    )}" ${field.required ? "required" : ""} />
+                </label>`;
+                  })
+                  .join("")}
+                <label class="inline">
+                  <input type="checkbox" name="confirm_attending" required ${
+                    formValues?.confirm_attending ? "checked" : ""
+                  } />
+                  我已到场并确认出席
+                </label>
+                <div class="table-actions">
+                  <a class="btn ghost" href="/checkin">返回</a>
+                  <button class="btn primary" type="submit">完成签到</button>
+                </div>
+              </form>
             </div>`
             : ""
         }
@@ -1572,7 +1730,10 @@ const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
             </div>`
             : ""
         }
-        <form method="post" action="/checkin" class="form-stack">
+        ${
+          newGuestForm
+            ? ""
+            : `<form method="post" action="/checkin" class="form-stack">
           <label>
             姓名或手机号
             <input type="text" name="lookup" placeholder="请输入姓名或手机号" value="${escapeHtml(
@@ -1592,7 +1753,8 @@ const renderCheckin = ({ settings, error, result, prompt, formValues }) => `
             我已到场并确认出席
           </label>
           <button class="btn primary" type="submit">确认签到</button>
-        </form>
+        </form>`
+        }
       </section>
     </div>
     ${

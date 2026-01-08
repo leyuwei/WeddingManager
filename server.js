@@ -227,6 +227,25 @@ const upsertCheckin = (store, guestId, actualAttendees) => {
   return record;
 };
 
+const updateCheckinAttendees = (store, guestId, actualAttendees) => {
+  store.checkins = store.checkins || [];
+  const existing = store.checkins.find(
+    (checkin) => checkin.guest_id === guestId
+  );
+  if (existing) {
+    existing.actual_attendees = actualAttendees;
+    return existing;
+  }
+  const record = {
+    id: nextId(store, "checkins"),
+    guest_id: guestId,
+    actual_attendees: actualAttendees,
+    checked_in_at: new Date().toISOString()
+  };
+  store.checkins.push(record);
+  return record;
+};
+
 const handleRequest = async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   const pathname = url.pathname;
@@ -1020,6 +1039,41 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  const checkinUpdateMatch = pathname.match(/^\/admin\/checkins\/(\d+)\/update$/);
+  if (req.method === "POST" && checkinUpdateMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    const id = Number(checkinUpdateMatch[1]);
+    const tableNo = (body.table_no || "").trim();
+    const actualAttendees = Math.max(
+      Number.parseInt(body.actual_attendees, 10) || 1,
+      1
+    );
+    store.guests = store.guests.map((guest) =>
+      guest.id === id ? { ...guest, table_no: tableNo } : guest
+    );
+    updateCheckinAttendees(store, id, actualAttendees);
+    saveStore(store);
+    redirect(res, "/admin/checkins");
+    return;
+  }
+
+  const checkinCancelMatch = pathname.match(/^\/admin\/checkins\/(\d+)\/cancel$/);
+  if (req.method === "POST" && checkinCancelMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const id = Number(checkinCancelMatch[1]);
+    store.checkins = (store.checkins || []).filter(
+      (checkin) => checkin.guest_id !== id
+    );
+    saveStore(store);
+    redirect(res, "/admin/checkins");
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/admin/seat-cards") {
     const session = requireAdmin(req, res);
     if (!session) return;
@@ -1106,10 +1160,12 @@ const handleRequest = async (req, res) => {
       200,
       renderCheckin({
         settings: store.settings,
+        fields: store.invitation_fields,
         error: null,
         result: null,
         prompt: null,
-        formValues: {}
+        formValues: {},
+        newGuestForm: false
       })
     );
     return;
@@ -1121,7 +1177,8 @@ const handleRequest = async (req, res) => {
     const normalizedLookup = lookupInput.replace(/\s+/g, "");
     const isLikelyPhone = /^\d{6,}$/.test(normalizedLookup);
     const confirmAttending = Boolean(body.confirm_attending);
-    const forceNew = body.force_new === "1";
+    const startNew = body.start_new === "1";
+    const newGuest = body.new_guest === "1";
     const actualAttendees = Math.max(
       Number.parseInt(body.actual_attendees, 10) || 1,
       1
@@ -1130,18 +1187,110 @@ const handleRequest = async (req, res) => {
     const formValues = {
       lookup: lookupInput,
       actual_attendees: String(actualAttendees),
-      confirm_attending: confirmAttending
+      confirm_attending: confirmAttending,
+      name: (body.name || "").trim(),
+      phone: (body.phone || "").trim()
     };
+    store.invitation_fields.forEach((field) => {
+      formValues[field.field_key] = body[field.field_key] || "";
+    });
+    if (startNew) {
+      sendResponse(
+        res,
+        200,
+        renderCheckin({
+          settings: store.settings,
+          fields: store.invitation_fields,
+          error: null,
+          result: null,
+          prompt: null,
+          formValues,
+          newGuestForm: true
+        })
+      );
+      return;
+    }
+    if (newGuest) {
+      if (!formValues.name || !formValues.phone) {
+        sendResponse(
+          res,
+          200,
+          renderCheckin({
+            settings: store.settings,
+            fields: store.invitation_fields,
+            error: "请填写姓名和手机号后再签到。",
+            result: null,
+            prompt: null,
+            formValues,
+            newGuestForm: true
+          })
+        );
+        return;
+      }
+      if (!confirmAttending) {
+        sendResponse(
+          res,
+          200,
+          renderCheckin({
+            settings: store.settings,
+            fields: store.invitation_fields,
+            error: "请确认到场出席状态。",
+            result: null,
+            prompt: null,
+            formValues,
+            newGuestForm: true
+          })
+        );
+        return;
+      }
+      const responses = {};
+      store.invitation_fields.forEach((field) => {
+        responses[field.field_key] = body[field.field_key] || "";
+      });
+      const guest = {
+        id: nextId(store, "guests"),
+        name: formValues.name,
+        phone: formValues.phone,
+        attending: true,
+        responses,
+        table_no: "",
+        updated_at: new Date().toISOString()
+      };
+      store.guests.push(guest);
+      const checkinRecord = upsertCheckin(store, guest.id, actualAttendees);
+      saveStore(store);
+      sendResponse(
+        res,
+        200,
+        renderCheckin({
+          settings: store.settings,
+          fields: store.invitation_fields,
+          error: null,
+          result: {
+            name: guest.name,
+            table_no: guest.table_no || "未分配",
+            actual_attendees: actualAttendees,
+            checked_in_at: checkinRecord.checked_in_at
+          },
+          prompt: null,
+          formValues,
+          newGuestForm: false
+        })
+      );
+      return;
+    }
     if (!lookupInput) {
       sendResponse(
         res,
         200,
         renderCheckin({
           settings: store.settings,
+          fields: store.invitation_fields,
           error: "请填写姓名或手机号后再签到。",
           result: null,
           prompt: null,
-          formValues
+          formValues,
+          newGuestForm: false
         })
       );
       return;
@@ -1152,10 +1301,12 @@ const handleRequest = async (req, res) => {
         200,
         renderCheckin({
           settings: store.settings,
+          fields: store.invitation_fields,
           error: "请确认到场出席状态。",
           result: null,
           prompt: null,
-          formValues
+          formValues,
+          newGuestForm: false
         })
       );
       return;
@@ -1172,7 +1323,7 @@ const handleRequest = async (req, res) => {
     });
     const uniqueMatches = Array.from(matchMap.values());
     let guest = uniqueMatches.length === 1 ? uniqueMatches[0] : null;
-    if (!guest && !forceNew) {
+    if (!guest) {
       let message =
         "未在请柬登记名单中出现，是否填写错误？若确认为新来宾可继续登记。";
       if (uniqueMatches.length > 1) {
@@ -1183,10 +1334,12 @@ const handleRequest = async (req, res) => {
         200,
         renderCheckin({
           settings: store.settings,
+          fields: store.invitation_fields,
           error: null,
           result: null,
           prompt: { message },
-          formValues
+          formValues,
+          newGuestForm: false
         })
       );
       return;
@@ -1199,17 +1352,6 @@ const handleRequest = async (req, res) => {
       }
       guest.attending = true;
       guest.updated_at = new Date().toISOString();
-    } else {
-      guest = {
-        id: nextId(store, "guests"),
-        name: isLikelyPhone ? "来宾" : lookupInput,
-        phone: isLikelyPhone ? normalizedLookup : "",
-        attending: true,
-        responses: {},
-        table_no: "",
-        updated_at: new Date().toISOString()
-      };
-      store.guests.push(guest);
     }
     const checkinRecord = upsertCheckin(store, guest.id, actualAttendees);
     saveStore(store);
@@ -1218,6 +1360,7 @@ const handleRequest = async (req, res) => {
       200,
       renderCheckin({
         settings: store.settings,
+        fields: store.invitation_fields,
         error: null,
         result: {
           name: guest.name,
@@ -1226,7 +1369,8 @@ const handleRequest = async (req, res) => {
           checked_in_at: checkinRecord.checked_in_at
         },
         prompt: null,
-        formValues
+        formValues,
+        newGuestForm: false
       })
     );
     return;
