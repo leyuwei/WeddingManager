@@ -714,7 +714,12 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
       <h1>来宾信息统计</h1>
       <p>可直接编辑来宾信息并保存修改。未分配或桌号不存在的来宾将高亮提醒。</p>
     </div>
-    <a class="btn ghost" href="/admin/guests/export">导出Excel</a>
+    <div class="section-actions">
+      <a class="btn ghost" href="/admin/guests/export">导出Excel</a>
+      <form method="post" action="/admin/guests/clear" class="inline-form">
+        <button class="btn ghost" type="submit" onclick="return confirm('确定要清除所有来宾与签到数据吗？此操作不可恢复。') && confirm('请再次确认：确定要清除所有来宾与签到数据吗？');">清除来宾与签到</button>
+      </form>
+    </div>
   </div>
   <table class="table">
     <thead>
@@ -729,12 +734,20 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
     </thead>
     <tbody>
       ${guests
-        .map((guest) => {
+        .map((guest, index) => {
           const tableNo = String(guest.table_no || "").trim();
           const hasValidTable = tableNo && tableNos.has(tableNo);
-          const rowClass = hasValidTable ? "" : ' class="guest-row-alert"';
+          const rowClasses = [];
+          if (!hasValidTable) rowClasses.push("guest-row-alert");
+          if (guest.attendee_adjusted) rowClasses.push("guest-row-adjusted");
+          const rowClass = rowClasses.length
+            ? ` class="${rowClasses.join(" ")}"`
+            : "";
           const isErrorGuest =
             error && Number(errorGuestId) === Number(guest.id);
+          const prevGuest = guests[index - 1];
+          const nextGuest = guests[index + 1];
+          const focusGuestId = nextGuest?.id || prevGuest?.id || guest.id;
           const customInfoItems = fields.map((field) => {
             const value = (guest.responses || {})[field.field_key] || "";
             return {
@@ -768,6 +781,11 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
               ? `<div class="muted">显示：${escapeHtml(
                   formatGuestDisplayName(guest)
                 )}</div>`
+              : ""
+          }
+          ${
+            guest.attendee_adjusted
+              ? `<div class="adjusted-note">人数变动，请尽快调整桌位安排。</div>`
               : ""
           }
         </td>
@@ -896,6 +914,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
               <button class="btn ghost" type="submit">保存</button>
             </form>
             <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
+              <input type="hidden" name="return_to" value="guest-${focusGuestId}" />
               <button class="btn ghost" type="submit" onclick="return confirm('确认删除该来宾吗？');">删除</button>
             </form>
           </div>
@@ -1457,8 +1476,15 @@ const renderAdminCheckins = ({
   checkedInGuests,
   pendingGuests,
   tables
-}) =>
-  adminLayout(
+}) => {
+  const getGuestPartySize = (guest) => {
+    const rawValue = guest?.responses?.attendees;
+    if (!rawValue) return 1;
+    const parsed = Number.parseInt(String(rawValue).trim(), 10);
+    if (Number.isNaN(parsed) || parsed < 1) return 1;
+    return parsed;
+  };
+  return adminLayout(
     "现场签到",
     `
 <section class="card">
@@ -1540,8 +1566,15 @@ const renderAdminCheckins = ({
           ? checkedInGuests
               .map(
                 (guest) => `
-      <tr>
-        <td>${escapeHtml(guest.name || "-")}</td>
+      <tr${guest.attendee_adjusted ? ' class="guest-row-adjusted"' : ""}>
+        <td>
+          ${escapeHtml(guest.name || "-")}
+          ${
+            guest.attendee_adjusted
+              ? `<div class="adjusted-note">人数变动，请尽快调整桌位安排。</div>`
+              : ""
+          }
+        </td>
         <td>${escapeHtml(guest.phone || "-")}</td>
         <td>${escapeHtml(guest.table_no || "未分配")}</td>
         <td>${escapeHtml(guest.checkin?.actual_attendees || "-")}</td>
@@ -1611,6 +1644,7 @@ const renderAdminCheckins = ({
         <th>姓名</th>
         <th>手机号</th>
         <th>席位号</th>
+        <th>登记人数</th>
         <th>出席意向</th>
       </tr>
     </thead>
@@ -1624,11 +1658,12 @@ const renderAdminCheckins = ({
         <td>${escapeHtml(guest.name || "-")}</td>
         <td>${escapeHtml(guest.phone || "-")}</td>
         <td>${escapeHtml(guest.table_no || "未分配")}</td>
+        <td>${escapeHtml(getGuestPartySize(guest))}</td>
         <td>${guest.attending ? "确认出席" : "未确认"}</td>
       </tr>`
               )
               .join("")
-          : `<tr><td colspan="4" class="muted">所有来宾均已签到</td></tr>`
+          : `<tr><td colspan="5" class="muted">所有来宾均已签到</td></tr>`
       }
     </tbody>
   </table>
@@ -1673,6 +1708,7 @@ const renderAdminCheckins = ({
 </script>
 `
   );
+};
 
 const renderInvite = ({ settings, sections, fields, submitted }) => `
 <!DOCTYPE html>
