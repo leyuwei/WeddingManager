@@ -25,26 +25,69 @@ const renderAttendeeInput = ({
   dataAutoSave = false
 }) => {
   const normalized = normalizeAttendeeValue(value);
-  const listId = toDomId(`attendees-${name}-${form || "default"}`);
+  const selectId = toDomId(`attendees-select-${name}-${form || "default"}`);
+  const inputId = toDomId(`attendees-input-${name}-${form || "default"}`);
+  const isCustom =
+    normalized && !attendeeOptions.includes(String(normalized).trim());
   return `
-      <input type="text" name="${escapeHtml(
-    name
-  )}" inputmode="numeric" pattern="[0-9]*" value="${escapeHtml(
-    normalized
-  )}" list="${escapeHtml(listId)}" class="attendee-input" ${
+      <div class="attendee-picker" data-attendee-picker data-custom="${
+    isCustom ? "true" : "false"
+  }">
+        <select id="${escapeHtml(selectId)}" data-attendee-select ${
     form ? `form="${escapeHtml(form)}"` : ""
-  } ${required ? "required" : ""} ${
-    dataAutoSave ? "data-auto-save=\"true\"" : ""
-  } />
-      <datalist id="${escapeHtml(listId)}">
-        ${attendeeOptions
-          .map(
-            (option) =>
-              `<option value="${escapeHtml(option)}"></option>`
-          )
-          .join("")}
-      </datalist>`;
+  } ${dataAutoSave ? "data-auto-save=\"true\"" : ""}>
+          ${attendeeOptions
+            .map(
+              (option) =>
+                `<option value="${escapeHtml(option)}" ${
+                  option === normalized ? "selected" : ""
+                }>${escapeHtml(option)}</option>`
+            )
+            .join("")}
+          <option value="custom" ${isCustom ? "selected" : ""}>自定义</option>
+        </select>
+        <input type="number" name="${escapeHtml(
+    name
+  )}" id="${escapeHtml(inputId)}" min="1" value="${escapeHtml(
+    normalized
+  )}" class="attendee-input" ${
+    form ? `form="${escapeHtml(form)}"` : ""
+  } ${required ? "required" : ""} />
+      </div>`;
 };
+
+const attendeePickerScript = `
+  (() => {
+    const pickers = Array.from(
+      document.querySelectorAll("[data-attendee-picker]")
+    );
+    if (!pickers.length) return;
+    const syncPicker = (picker, selectedValue) => {
+      const select = picker.querySelector("[data-attendee-select]");
+      const input = picker.querySelector(".attendee-input");
+      if (!select || !input) return;
+      if (selectedValue === "custom") {
+        picker.dataset.custom = "true";
+        if (!input.value) input.value = "21";
+        input.focus();
+        return;
+      }
+      picker.dataset.custom = "false";
+      if (selectedValue) {
+        input.value = selectedValue;
+      }
+    };
+    pickers.forEach((picker) => {
+      const select = picker.querySelector("[data-attendee-select]");
+      if (!select) return;
+      select.addEventListener("change", (event) => {
+        syncPicker(picker, event.target.value);
+      });
+      const selected = select.value;
+      syncPicker(picker, selected);
+    });
+  })();
+`;
 
 const renderAttendingSelect = ({ name, value, required = false, form }) => {
   const isAttending = Boolean(value);
@@ -107,6 +150,9 @@ const adminLayout = (title, body) => `
     <main class="container">
       ${body}
     </main>
+    <script>
+      ${attendeePickerScript}
+    </script>
   </body>
 </html>
 `;
@@ -1897,6 +1943,9 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
       </section>
     </div>
   </body>
+  <script>
+    ${attendeePickerScript}
+  </script>
 </html>
 `;
 

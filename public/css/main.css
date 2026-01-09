@@ -458,6 +458,20 @@ textarea {
   min-width: 80px;
 }
 
+.attendee-picker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.attendee-picker select {
+  min-width: 120px;
+}
+
+.attendee-picker[data-custom="false"] .attendee-input {
+  display: none;
+}
+
 .custom-info-cell {
   display: flex;
   align-items: center;
