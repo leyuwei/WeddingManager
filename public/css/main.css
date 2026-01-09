@@ -408,6 +408,13 @@ textarea {
   flex-wrap: wrap;
 }
 
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
