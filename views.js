@@ -1476,8 +1476,15 @@ const renderAdminCheckins = ({
   checkedInGuests,
   pendingGuests,
   tables
-}) =>
-  adminLayout(
+}) => {
+  const getGuestPartySize = (guest) => {
+    const rawValue = guest?.responses?.attendees;
+    if (!rawValue) return 1;
+    const parsed = Number.parseInt(String(rawValue).trim(), 10);
+    if (Number.isNaN(parsed) || parsed < 1) return 1;
+    return parsed;
+  };
+  return adminLayout(
     "现场签到",
     `
 <section class="card">
@@ -1637,6 +1644,7 @@ const renderAdminCheckins = ({
         <th>姓名</th>
         <th>手机号</th>
         <th>席位号</th>
+        <th>登记人数</th>
         <th>出席意向</th>
       </tr>
     </thead>
@@ -1650,11 +1658,12 @@ const renderAdminCheckins = ({
         <td>${escapeHtml(guest.name || "-")}</td>
         <td>${escapeHtml(guest.phone || "-")}</td>
         <td>${escapeHtml(guest.table_no || "未分配")}</td>
+        <td>${escapeHtml(getGuestPartySize(guest))}</td>
         <td>${guest.attending ? "确认出席" : "未确认"}</td>
       </tr>`
               )
               .join("")
-          : `<tr><td colspan="4" class="muted">所有来宾均已签到</td></tr>`
+          : `<tr><td colspan="5" class="muted">所有来宾均已签到</td></tr>`
       }
     </tbody>
   </table>
@@ -1699,6 +1708,7 @@ const renderAdminCheckins = ({
 </script>
 `
   );
+};
 
 const renderInvite = ({ settings, sections, fields, submitted }) => `
 <!DOCTYPE html>
