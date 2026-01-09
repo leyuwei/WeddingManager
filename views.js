@@ -56,6 +56,23 @@ const renderAttendeeInput = ({
       </div>`;
 };
 
+const renderInviteAttendeeSelect = ({ name, value, required = false }) => {
+  const normalized = normalizeAttendeeValue(value);
+  return `
+      <select name="${escapeHtml(name)}" class="invite-attendee-select" ${
+    required ? "required" : ""
+  }>
+        ${attendeeOptions
+          .map(
+            (option) =>
+              `<option value="${escapeHtml(option)}" ${
+                option === normalized ? "selected" : ""
+              }>${escapeHtml(option)}</option>`
+          )
+          .join("")}
+      </select>`;
+};
+
 const attendeePickerScript = `
   (() => {
     const pickers = Array.from(
@@ -1888,7 +1905,10 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
             </label>
             <label>
               出席人数
-              ${renderAttendeeInput({ name: "attendees", required: true })}
+              ${renderInviteAttendeeSelect({
+                name: "attendees",
+                required: true
+              })}
             </label>
             <label>
               出席情况
