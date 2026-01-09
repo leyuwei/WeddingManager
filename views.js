@@ -6,14 +6,18 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
-const attendeeOptions = ["1", "2", "3", "4+"];
+const attendeeOptions = Array.from({ length: 20 }, (_, index) =>
+  String(index + 1)
+);
 
 const normalizeAttendeeValue = (value) => {
   const normalized = String(value || "").trim();
   return normalized || "1";
 };
 
-const renderAttendeeSelect = ({
+const toDomId = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "-");
+
+const renderAttendeeInput = ({
   name,
   value,
   required = false,
@@ -21,21 +25,23 @@ const renderAttendeeSelect = ({
   dataAutoSave = false
 }) => {
   const normalized = normalizeAttendeeValue(value);
+  const listId = toDomId(`attendees-${name}-${form || "default"}`);
   return `
-      <select name="${escapeHtml(name)}" ${
+      <input type="number" name="${escapeHtml(name)}" min="1" value="${escapeHtml(
+    normalized
+  )}" list="${escapeHtml(listId)}" ${
     form ? `form="${escapeHtml(form)}"` : ""
   } ${required ? "required" : ""} ${
     dataAutoSave ? "data-auto-save=\"true\"" : ""
-  }>
+  } />
+      <datalist id="${escapeHtml(listId)}">
         ${attendeeOptions
           .map(
             (option) =>
-              `<option value="${escapeHtml(option)}" ${
-                option === normalized ? "selected" : ""
-              }>${escapeHtml(option)}</option>`
+              `<option value="${escapeHtml(option)}"></option>`
           )
           .join("")}
-      </select>`;
+      </datalist>`;
 };
 
 const renderAttendingSelect = ({ name, value, required = false, form }) => {
@@ -557,7 +563,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
     </label>
     <label>
       出席人数
-      ${renderAttendeeSelect({ name: "attendees", required: true })}
+      ${renderAttendeeInput({ name: "attendees", required: true })}
     </label>
     <label>
       出席情况
@@ -851,7 +857,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
           })}
         </td>
         <td>
-          ${renderAttendeeSelect({
+          ${renderAttendeeInput({
             name: "attendees",
             value: guest.responses?.attendees,
             required: true,
@@ -1832,7 +1838,7 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
             </label>
             <label>
               出席人数
-              ${renderAttendeeSelect({ name: "attendees", required: true })}
+              ${renderAttendeeInput({ name: "attendees", required: true })}
             </label>
             <label>
               出席情况
