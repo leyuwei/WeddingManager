@@ -252,7 +252,7 @@ const attendeePickerScript = `
 const renderAttendingSelect = ({ name, value, required = false, form }) => {
   const isAttending = Boolean(value);
   return `
-      <select name="${escapeHtml(name)}" ${
+      <select class="attendee-show-or-not-select" name="${escapeHtml(name)}" ${
     form ? `form="${escapeHtml(form)}"` : ""
   } ${required ? "required" : ""}>
         <option value="yes" ${isAttending ? "selected" : ""}>出席</option>
@@ -2002,6 +2002,25 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
   </head>
   <body>
     <div class="invite">
+
+      ${
+            String(submitted) === "1"
+              ? `<div class="invite-success">
+            <div class="invite-success-text">
+              已收到您的信息，感谢祝福！<br>期待与您及亲朋在婚礼现场相见。
+            </div>
+            <div class="invite-success-card">
+              <canvas id="inviteCardCanvas" width="720" height="480"></canvas>
+            </div>
+            <div class="invite-success-actions">
+              <a class="btn primary" id="inviteCardDownload" href="#">下载婚礼信息卡</a>
+            </div>
+            <div class="invite-success-note">
+              如信息填写错误，您可随时再次打开请柬链接重新填写
+            </div>
+          </div>`
+              : `
+
       <section class="hero">
         <div class="hero-overlay">
           <h1>${escapeHtml(settings.couple_name || "")}</h1>
@@ -2032,25 +2051,6 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
       <section class="rsvp" id="rsvp">
         <div class="rsvp-card">
           <h2>填写来宾信息</h2>
-          ${
-            String(submitted) === "1"
-              ? `<div class="invite-success">
-            <div class="invite-success-text">
-              已收到你的信息，感谢祝福！期待与您及亲朋在婚礼现场相见。
-            </div>
-            <div class="invite-success-card">
-              <canvas id="inviteCardCanvas" width="720" height="480"></canvas>
-            </div>
-            <div class="invite-success-actions">
-              <a class="btn ghost" id="inviteCardDownload" href="#">下载信息卡</a>
-              <a class="btn primary" id="inviteAddCalendar" href="#">一键加入日历</a>
-            </div>
-            <div class="invite-success-note">
-              提示：点击“加入日历”会下载 .ics 文件，iOS/安卓/微信内置浏览器均可打开并添加至日历。
-            </div>
-          </div>`
-              : ""
-          }
           <form method="post" action="/invite/rsvp" class="form-stack">
             <label>
               姓名
@@ -2114,10 +2114,13 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
             </label>`;
               })
               .join("")}
-            <button class="btn primary" type="submit">提交信息</button>
+            <button class="btn primary" type="submit" style="font-size:large">提交信息</button>
           </form>
         </div>
       </section>
+
+      `
+      }
     </div>
   </body>
   <script>

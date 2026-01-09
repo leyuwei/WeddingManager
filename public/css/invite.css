@@ -1,5 +1,13 @@
 @import url("https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playfair+Display:wght@400;600&family=Inter:wght@400;600&display=swap");
 
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -129,6 +137,17 @@ textarea {
   background-size: 14px 14px;
 }
 
+.attendee-show-or-not-select {
+  width: 100%;
+  appearance: none;
+  background-color: #fff;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236c5c53' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px 14px;
+}
+
 .btn.primary {
   background: #2f2a26;
   color: white;
@@ -163,7 +182,7 @@ textarea {
 }
 
 .invite-success-text {
-  font-weight: 600;
+  font-weight: 1000;
   margin-bottom: 16px;
 }
 
@@ -191,6 +210,6 @@ textarea {
 }
 
 .invite-success-note {
-  font-size: 12px;
+  font-size: 15px;
   color: #7a6a61;
 }
