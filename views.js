@@ -6,6 +6,260 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
+const attendeeOptions = Array.from({ length: 20 }, (_, index) =>
+  String(index + 1)
+);
+
+const normalizeAttendeeValue = (value) => {
+  const normalized = String(value || "").trim();
+  return normalized || "1";
+};
+
+const toDomId = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "-");
+
+const renderAttendeeInput = ({
+  name,
+  value,
+  required = false,
+  form,
+  dataAutoSave = false
+}) => {
+  const normalized = normalizeAttendeeValue(value);
+  const selectId = toDomId(`attendees-select-${name}-${form || "default"}`);
+  const inputId = toDomId(`attendees-input-${name}-${form || "default"}`);
+  const isCustom =
+    normalized && !attendeeOptions.includes(String(normalized).trim());
+  return `
+      <div class="attendee-picker" data-attendee-picker data-custom="${
+    isCustom ? "true" : "false"
+  }">
+        <select id="${escapeHtml(selectId)}" data-attendee-select ${
+    form ? `form="${escapeHtml(form)}"` : ""
+  } ${dataAutoSave ? "data-auto-save=\"true\"" : ""}>
+          ${attendeeOptions
+            .map(
+              (option) =>
+                `<option value="${escapeHtml(option)}" ${
+                  option === normalized ? "selected" : ""
+                }>${escapeHtml(option)}</option>`
+            )
+            .join("")}
+          <option value="custom" ${isCustom ? "selected" : ""}>自定义</option>
+        </select>
+        <input type="number" name="${escapeHtml(
+    name
+  )}" id="${escapeHtml(inputId)}" min="1" value="${escapeHtml(
+    normalized
+  )}" class="attendee-input" ${
+    form ? `form="${escapeHtml(form)}"` : ""
+  } ${required ? "required" : ""} />
+      </div>`;
+};
+
+const renderInviteAttendeeSelect = ({ name, value, required = false }) => {
+  const normalized = normalizeAttendeeValue(value);
+  return `
+      <select name="${escapeHtml(name)}" class="invite-attendee-select" ${
+    required ? "required" : ""
+  }>
+        ${attendeeOptions
+          .map(
+            (option) =>
+              `<option value="${escapeHtml(option)}" ${
+                option === normalized ? "selected" : ""
+              }>${escapeHtml(option)}</option>`
+          )
+          .join("")}
+      </select>`;
+};
+
+const renderInviteSuccessScript = (settings, submitted) => {
+  if (String(submitted) !== "1") return "";
+  const payload = {
+    coupleName: settings?.couple_name || "",
+    weddingDate: settings?.wedding_date || "",
+    weddingLocation: settings?.wedding_location || "",
+    heroMessage: settings?.hero_message || ""
+  };
+  return `
+  (() => {
+    const data = ${JSON.stringify(payload)};
+    const canvas = document.getElementById("inviteCardCanvas");
+    const downloadButton = document.getElementById("inviteCardDownload");
+    const calendarLink = document.getElementById("inviteAddCalendar");
+
+    const pad = (value) => String(value).padStart(2, "0");
+    const toIcsDate = (parts) =>
+      \`\${parts.year}\${pad(parts.month)}\${pad(parts.day)}T\${pad(
+        parts.hour
+      )}\${pad(parts.minute)}00\`;
+    const parseDate = (raw) => {
+      const match = String(raw || "").match(
+        /(\\d{4})年(\\d{1,2})月(\\d{1,2})日\\s*(\\d{1,2})[:：](\\d{2})/
+      );
+      if (!match) return null;
+      return {
+        year: Number(match[1]),
+        month: Number(match[2]),
+        day: Number(match[3]),
+        hour: Number(match[4]),
+        minute: Number(match[5])
+      };
+    };
+    const addHours = (parts, hours) => {
+      const date = new Date(
+        parts.year,
+        parts.month - 1,
+        parts.day,
+        parts.hour,
+        parts.minute
+      );
+      date.setHours(date.getHours() + hours);
+      return {
+        year: date.getFullYear(),
+        month: date.getMonth() + 1,
+        day: date.getDate(),
+        hour: date.getHours(),
+        minute: date.getMinutes()
+      };
+    };
+
+    const startParts =
+      parseDate(data.weddingDate) ||
+      addHours(
+        {
+          year: new Date().getFullYear(),
+          month: new Date().getMonth() + 1,
+          day: new Date().getDate(),
+          hour: new Date().getHours(),
+          minute: new Date().getMinutes()
+        },
+        24
+      );
+    const endParts = addHours(startParts, 2);
+    const dtStart = toIcsDate(startParts);
+    const dtEnd = toIcsDate(endParts);
+    const dtStamp = new Date()
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .split(".")[0]
+      .concat("Z");
+    const uid = \`wedding-\${Date.now()}@weddingmanager\`;
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Wedding Manager//CN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      "BEGIN:VEVENT",
+      \`UID:\${uid}\`,
+      \`DTSTAMP:\${dtStamp}\`,
+      \`DTSTART;TZID=Asia/Shanghai:\${dtStart}\`,
+      \`DTEND;TZID=Asia/Shanghai:\${dtEnd}\`,
+      \`SUMMARY:\${data.coupleName || "婚礼邀请"}\`,
+      \`LOCATION:\${data.weddingLocation || "婚礼现场"}\`,
+      \`DESCRIPTION:\${(data.heroMessage || "诚挚邀请你出席我们的婚礼").replaceAll(
+        "\\n",
+        "\\\\n"
+      )}\`,
+      "END:VEVENT",
+      "END:VCALENDAR"
+    ].join("\\r\\n");
+
+    if (calendarLink) {
+      const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      calendarLink.href = url;
+      calendarLink.download = "wedding-invite.ics";
+    }
+
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const width = canvas.width;
+      const height = canvas.height;
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, "#fff5f8");
+      gradient.addColorStop(1, "#f3f4ff");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#e8dfe6";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(24, 24, width - 48, height - 48);
+
+      ctx.fillStyle = "#2f2a26";
+      ctx.textAlign = "center";
+      ctx.font = "bold 36px 'Inter', 'PingFang SC', sans-serif";
+      ctx.fillText(data.coupleName || "我们的婚礼", width / 2, 120);
+
+      ctx.fillStyle = "#6c5c53";
+      ctx.font = "20px 'Inter', 'PingFang SC', sans-serif";
+      ctx.fillText(data.weddingDate || "", width / 2, 190);
+      ctx.fillText(data.weddingLocation || "", width / 2, 230);
+
+      ctx.fillStyle = "#8a7a70";
+      ctx.font = "18px 'Inter', 'PingFang SC', sans-serif";
+      const message =
+        data.heroMessage || "期待与你及亲朋的美好相聚";
+      ctx.fillText(message, width / 2, 300);
+
+      ctx.fillStyle = "#b7a6a0";
+      ctx.font = "16px 'Inter', 'PingFang SC', sans-serif";
+      ctx.fillText("Wedding Manager", width / 2, height - 80);
+
+      if (downloadButton) {
+        downloadButton.href = canvas.toDataURL("image/png");
+        downloadButton.download = "婚礼信息卡.png";
+      }
+    }
+  })();
+`;
+};
+
+const attendeePickerScript = `
+  (() => {
+    const pickers = Array.from(
+      document.querySelectorAll("[data-attendee-picker]")
+    );
+    if (!pickers.length) return;
+    const syncPicker = (picker, selectedValue) => {
+      const select = picker.querySelector("[data-attendee-select]");
+      const input = picker.querySelector(".attendee-input");
+      if (!select || !input) return;
+      if (selectedValue === "custom") {
+        picker.dataset.custom = "true";
+        if (!input.value) input.value = "21";
+        input.focus();
+        return;
+      }
+      picker.dataset.custom = "false";
+      if (selectedValue) {
+        input.value = selectedValue;
+      }
+    };
+    pickers.forEach((picker) => {
+      const select = picker.querySelector("[data-attendee-select]");
+      if (!select) return;
+      select.addEventListener("change", (event) => {
+        syncPicker(picker, event.target.value);
+      });
+      const selected = select.value;
+      syncPicker(picker, selected);
+    });
+  })();
+`;
+
+const renderAttendingSelect = ({ name, value, required = false, form }) => {
+  const isAttending = Boolean(value);
+  return `
+      <select name="${escapeHtml(name)}" ${
+    form ? `form="${escapeHtml(form)}"` : ""
+  } ${required ? "required" : ""}>
+        <option value="yes" ${isAttending ? "selected" : ""}>出席</option>
+        <option value="no" ${!isAttending ? "selected" : ""}>不出席</option>
+      </select>`;
+};
+
 const getAttendeeLabel = (guest) => {
   const rawValue = guest?.responses?.attendees;
   if (!rawValue) return null;
@@ -56,6 +310,9 @@ const adminLayout = (title, body) => `
     <main class="container">
       ${body}
     </main>
+    <script>
+      ${attendeePickerScript}
+    </script>
   </body>
 </html>
 `;
@@ -513,6 +770,14 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
       <input type="tel" name="phone" required />
     </label>
     <label>
+      出席人数
+      ${renderAttendeeInput({ name: "attendees", required: true })}
+    </label>
+    <label>
+      出席情况
+      ${renderAttendingSelect({ name: "attending", value: true, required: true })}
+    </label>
+    <label>
       席位号
       ${renderTableOptions()}
     </label>
@@ -521,10 +786,6 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         ? ""
         : `<p class="muted full">请先在下方新增桌子，再为来宾分配席位。</p>`
     }
-    <label class="inline">
-      <input type="checkbox" name="attending" checked />
-      出席
-    </label>
     ${fields
       .map((field) => {
         if (field.field_type === "textarea") {
@@ -721,12 +982,14 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
       </form>
     </div>
   </div>
-  <table class="table">
+  <div class="table-scroll">
+  <table class="table guest-table">
     <thead>
       <tr>
         <th>姓名</th>
         <th>手机号</th>
         <th>出席</th>
+        <th class="attendee-count-col">出席人数</th>
         <th>席位号</th>
         <th>自定义信息</th>
         <th>操作</th>
@@ -775,7 +1038,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         <td>
           <input type="text" name="name" value="${escapeHtml(
             guest.name
-          )}" form="guest-form-${guest.id}" />
+          )}" form="guest-form-${guest.id}" required />
           ${
             getCompanionLabel(guest)
               ? `<div class="muted">显示：${escapeHtml(
@@ -792,15 +1055,23 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         <td>
           <input type="tel" name="phone" value="${escapeHtml(
             guest.phone
-          )}" form="guest-form-${guest.id}" />
+          )}" form="guest-form-${guest.id}" required />
         </td>
         <td>
-          <label class="inline">
-            <input type="checkbox" name="attending" ${
-              guest.attending ? "checked" : ""
-            } form="guest-form-${guest.id}" />
-            出席
-          </label>
+          ${renderAttendingSelect({
+            name: "attending",
+            value: guest.attending,
+            required: true,
+            form: `guest-form-${guest.id}`
+          })}
+        </td>
+        <td class="attendee-count-col">
+          ${renderAttendeeInput({
+            name: "attendees",
+            value: guest.responses?.attendees,
+            required: true,
+            form: `guest-form-${guest.id}`
+          })}
         </td>
         <td>
           <select name="table_no" form="guest-form-${guest.id}" data-auto-save="true">
@@ -858,7 +1129,9 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
                   ${escapeHtml(field.label)}
                   <textarea name="${escapeHtml(
                     field.field_key
-                  )}" rows="2" form="guest-form-${guest.id}">${escapeHtml(
+                  )}" rows="2" form="guest-form-${guest.id}" ${
+                        field.required ? "required" : ""
+                      }>${escapeHtml(
                         value
                       )}</textarea>
                 </label>`;
@@ -880,7 +1153,9 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
                   ${escapeHtml(field.label)}
                   <select name="${escapeHtml(
                     field.field_key
-                  )}" form="guest-form-${guest.id}">
+                  )}" form="guest-form-${guest.id}" ${
+                        field.required ? "required" : ""
+                      }>
                     <option value="">请选择</option>
                     ${options}
                   </select>
@@ -893,7 +1168,9 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
                     field.field_key
                   )}" value="${escapeHtml(
                       value
-                    )}" form="guest-form-${guest.id}" />
+                    )}" form="guest-form-${guest.id}" ${
+                        field.required ? "required" : ""
+                      } />
                 </label>`;
                   })
                   .join("")}
@@ -924,6 +1201,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         .join("")}
     </tbody>
   </table>
+  </div>
 </section>
 <script>
   (() => {
@@ -1756,7 +2034,21 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
           <h2>填写来宾信息</h2>
           ${
             String(submitted) === "1"
-              ? `<div class="success">已收到你的信息，感谢祝福！可再次提交以修改。</div>`
+              ? `<div class="invite-success">
+            <div class="invite-success-text">
+              已收到你的信息，感谢祝福！期待与您及亲朋在婚礼现场相见。
+            </div>
+            <div class="invite-success-card">
+              <canvas id="inviteCardCanvas" width="720" height="480"></canvas>
+            </div>
+            <div class="invite-success-actions">
+              <a class="btn ghost" id="inviteCardDownload" href="#">下载信息卡</a>
+              <a class="btn primary" id="inviteAddCalendar" href="#">一键加入日历</a>
+            </div>
+            <div class="invite-success-note">
+              提示：点击“加入日历”会下载 .ics 文件，iOS/安卓/微信内置浏览器均可打开并添加至日历。
+            </div>
+          </div>`
               : ""
           }
           <form method="post" action="/invite/rsvp" class="form-stack">
@@ -1768,9 +2060,16 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
               手机号
               <input type="tel" name="phone" required />
             </label>
-            <label class="inline">
-              <input type="checkbox" name="attending" checked />
-              我将出席婚礼
+            <label>
+              出席人数
+              ${renderInviteAttendeeSelect({
+                name: "attendees",
+                required: true
+              })}
+            </label>
+            <label>
+              出席情况
+              ${renderAttendingSelect({ name: "attending", value: true, required: true })}
             </label>
             ${fields
               .map((field) => {
@@ -1821,6 +2120,10 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
       </section>
     </div>
   </body>
+  <script>
+    ${attendeePickerScript}
+    ${renderInviteSuccessScript(settings, submitted)}
+  </script>
 </html>
 `;
 

@@ -56,7 +56,7 @@ test("shows formatted guest name for multiple attendees in lists and seat cards"
     body: new URLSearchParams({
       name: "王小明",
       phone: "13800000000",
-      attending: "on",
+      attending: "yes",
       attendees: "3"
     }),
     redirect: "manual"
@@ -108,7 +108,8 @@ test("warns when multiple guests share the same lookup on check-in", async () =>
     body: new URLSearchParams({
       name: "李四",
       phone: "13800000001",
-      attending: "on"
+      attending: "yes",
+      attendees: "1"
     }),
     redirect: "manual"
   });
@@ -120,7 +121,8 @@ test("warns when multiple guests share the same lookup on check-in", async () =>
     body: new URLSearchParams({
       name: "李四",
       phone: "13800000002",
-      attending: "on"
+      attending: "yes",
+      attendees: "1"
     }),
     redirect: "manual"
   });

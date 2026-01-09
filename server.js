@@ -211,6 +211,29 @@ const parsePartySize = (value) => {
   return parsed;
 };
 
+const parseAttendingValue = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (["yes", "true", "1", "on"].includes(normalized)) return true;
+  if (["no", "false", "0", "off"].includes(normalized)) return false;
+  return null;
+};
+
+const getMissingGuestFieldLabels = (values, fields = []) => {
+  const missing = [];
+  if (!values.name) missing.push("姓名");
+  if (!values.phone) missing.push("手机号");
+  if (!values.attendees) missing.push("出席人数");
+  if (values.attending === null) missing.push("出席情况");
+  fields
+    .filter((field) => field.required)
+    .forEach((field) => {
+      const fieldValue = String(values.responses?.[field.field_key] || "").trim();
+      if (!fieldValue) missing.push(field.label);
+    });
+  return missing;
+};
+
 const getGuestPartySizeFromResponses = (responses) =>
   parsePartySize(responses?.attendees);
 
@@ -621,6 +644,7 @@ const handleRequest = async (req, res) => {
       "姓名",
       "手机号",
       "出席",
+      "出席人数",
       "席位号",
       ...fields.map((field) => field.label)
     ];
@@ -630,6 +654,7 @@ const handleRequest = async (req, res) => {
         guest.name || "",
         guest.phone || "",
         guest.attending ? "是" : "否",
+        responses.attendees || "",
         guest.table_no || ""
       ];
       const extras = fields.map((field) => responses[field.field_key] || "");
@@ -822,16 +847,34 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const body = await parseBody(req);
-    if (!body.name || !body.phone) {
-      redirect(res, "/admin/guests");
-      return;
-    }
     const store = loadStore();
+    const name = String(body.name || "").trim();
+    const phone = String(body.phone || "").trim();
+    const attendees = String(body.attendees || "").trim();
+    const attending = parseAttendingValue(body.attending);
     const tableNo = getValidTableNo(body.table_no, store.tables);
     const responses = {};
     store.invitation_fields.forEach((field) => {
       responses[field.field_key] = body[field.field_key] || "";
     });
+    responses.attendees = attendees;
+    const missingFields = getMissingGuestFieldLabels(
+      {
+        name,
+        phone,
+        attendees,
+        attending,
+        responses
+      },
+      store.invitation_fields
+    );
+    if (missingFields.length) {
+      const message = encodeURIComponent(
+        `请填写必填项：${missingFields.join("、")}。`
+      );
+      redirect(res, `/admin/guests?error=${message}`);
+      return;
+    }
     if (tableNo) {
       const targetTable = store.tables.find(
         (table) => normalizeTableNo(table.table_no) === tableNo
@@ -849,19 +892,19 @@ const handleRequest = async (req, res) => {
         }
       }
     }
-    const existing = store.guests.find((guest) => guest.phone === body.phone);
+    const existing = store.guests.find((guest) => guest.phone === phone);
     if (existing) {
-      existing.name = body.name;
-      existing.attending = Boolean(body.attending);
+      existing.name = name;
+      existing.attending = attending;
       existing.table_no = tableNo;
       existing.responses = responses;
       existing.updated_at = new Date().toISOString();
     } else {
       store.guests.push({
         id: nextId(store, "guests"),
-        name: body.name,
-        phone: body.phone,
-        attending: Boolean(body.attending),
+        name,
+        phone,
+        attending,
         responses,
         table_no: tableNo,
         updated_at: new Date().toISOString()
@@ -890,11 +933,35 @@ const handleRequest = async (req, res) => {
     const body = await parseBody(req);
     const store = loadStore();
     const id = Number(guestUpdateMatch[1]);
+    const name = String(body.name || "").trim();
+    const phone = String(body.phone || "").trim();
+    const attendees = String(body.attendees || "").trim();
+    const attending = parseAttendingValue(body.attending);
     const tableNo = getValidTableNo(body.table_no, store.tables);
     const responses = {};
     store.invitation_fields.forEach((field) => {
       responses[field.field_key] = body[field.field_key] || "";
     });
+    responses.attendees = attendees;
+    const missingFields = getMissingGuestFieldLabels(
+      {
+        name,
+        phone,
+        attendees,
+        attending,
+        responses
+      },
+      store.invitation_fields
+    );
+    if (missingFields.length) {
+      const message = encodeURIComponent(
+        `请填写必填项：${missingFields.join("、")}。`
+      );
+      const returnTo = (body.return_to || "").trim();
+      const hash = returnTo ? `#${encodeURIComponent(returnTo)}` : "";
+      redirect(res, `/admin/guests?error=${message}&error_guest=${id}${hash}`);
+      return;
+    }
     if (tableNo) {
       const targetTable = store.tables.find(
         (table) => normalizeTableNo(table.table_no) === tableNo
@@ -921,10 +988,10 @@ const handleRequest = async (req, res) => {
       guest.id === id
         ? {
             ...guest,
-            name: body.name || guest.name,
-            phone: body.phone || guest.phone,
+            name: name || guest.name,
+            phone: phone || guest.phone,
             table_no: tableNo,
-            attending: Boolean(body.attending),
+            attending,
             responses,
             updated_at: new Date().toISOString()
           }
@@ -1380,6 +1447,33 @@ const handleRequest = async (req, res) => {
       store.invitation_fields.forEach((field) => {
         responses[field.field_key] = body[field.field_key] || "";
       });
+      responses.attendees = String(body.attendees || actualAttendees);
+      const missingFields = getMissingGuestFieldLabels(
+        {
+          name: formValues.name,
+          phone: formValues.phone,
+          attendees: responses.attendees,
+          attending: true,
+          responses
+        },
+        store.invitation_fields
+      );
+      if (missingFields.length) {
+        sendResponse(
+          res,
+          200,
+          renderCheckin({
+            settings: store.settings,
+            fields: store.invitation_fields,
+            error: `请填写必填项：${missingFields.join("、")}。`,
+            result: null,
+            prompt: null,
+            formValues,
+            newGuestForm: true
+          })
+        );
+        return;
+      }
       const guest = {
         id: nextId(store, "guests"),
         name: formValues.name,
@@ -1513,27 +1607,47 @@ const handleRequest = async (req, res) => {
 
   if (req.method === "POST" && pathname === "/invite/rsvp") {
     const body = await parseBody(req);
-    if (!body.name || !body.phone) {
-      sendResponse(res, 400, "请填写姓名和手机号", "text/plain");
-      return;
-    }
     const store = loadStore();
+    const name = String(body.name || "").trim();
+    const phone = String(body.phone || "").trim();
+    const attendees = String(body.attendees || "").trim();
+    const attending = parseAttendingValue(body.attending);
     const responses = {};
     store.invitation_fields.forEach((field) => {
       responses[field.field_key] = body[field.field_key] || "";
     });
-    const existing = store.guests.find((guest) => guest.phone === body.phone);
+    responses.attendees = attendees;
+    const missingFields = getMissingGuestFieldLabels(
+      {
+        name,
+        phone,
+        attendees,
+        attending,
+        responses
+      },
+      store.invitation_fields
+    );
+    if (missingFields.length) {
+      sendResponse(
+        res,
+        400,
+        `请填写必填项：${missingFields.join("、")}。`,
+        "text/plain"
+      );
+      return;
+    }
+    const existing = store.guests.find((guest) => guest.phone === phone);
     if (existing) {
-      existing.name = body.name;
-      existing.attending = Boolean(body.attending);
+      existing.name = name;
+      existing.attending = attending;
       existing.responses = responses;
       existing.updated_at = new Date().toISOString();
     } else {
       store.guests.push({
         id: nextId(store, "guests"),
-        name: body.name,
-        phone: body.phone,
-        attending: Boolean(body.attending),
+        name,
+        phone,
+        attending,
         responses,
         table_no: "",
         updated_at: new Date().toISOString()

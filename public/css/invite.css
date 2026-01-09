@@ -118,6 +118,17 @@ textarea {
   padding: 10px 12px;
 }
 
+.invite-attendee-select {
+  width: 100%;
+  appearance: none;
+  background-color: #fff;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236c5c53' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px 14px;
+}
+
 .btn.primary {
   background: #2f2a26;
   color: white;
@@ -139,4 +150,47 @@ textarea {
   flex-direction: row;
   gap: 10px;
   align-items: center;
+}
+
+.invite-success {
+  background: linear-gradient(135deg, #fff5f8, #f6f4ff);
+  border-radius: 18px;
+  padding: 20px;
+  margin-bottom: 16px;
+  text-align: center;
+  color: #4b3c33;
+  box-shadow: inset 0 0 0 1px #efe4ea;
+}
+
+.invite-success-text {
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.invite-success-card {
+  background: white;
+  border-radius: 16px;
+  padding: 12px;
+  margin-bottom: 16px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+}
+
+.invite-success-card canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 12px;
+}
+
+.invite-success-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.invite-success-note {
+  font-size: 12px;
+  color: #7a6a61;
 }
