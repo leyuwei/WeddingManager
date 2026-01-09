@@ -73,6 +73,149 @@ const renderInviteAttendeeSelect = ({ name, value, required = false }) => {
       </select>`;
 };
 
+const renderInviteSuccessScript = (settings, submitted) => {
+  if (String(submitted) !== "1") return "";
+  const payload = {
+    coupleName: settings?.couple_name || "",
+    weddingDate: settings?.wedding_date || "",
+    weddingLocation: settings?.wedding_location || "",
+    heroMessage: settings?.hero_message || ""
+  };
+  return `
+  (() => {
+    const data = ${JSON.stringify(payload)};
+    const canvas = document.getElementById("inviteCardCanvas");
+    const downloadButton = document.getElementById("inviteCardDownload");
+    const calendarLink = document.getElementById("inviteAddCalendar");
+
+    const pad = (value) => String(value).padStart(2, "0");
+    const toIcsDate = (parts) =>
+      \`\${parts.year}\${pad(parts.month)}\${pad(parts.day)}T\${pad(
+        parts.hour
+      )}\${pad(parts.minute)}00\`;
+    const parseDate = (raw) => {
+      const match = String(raw || "").match(
+        /(\\d{4})年(\\d{1,2})月(\\d{1,2})日\\s*(\\d{1,2})[:：](\\d{2})/
+      );
+      if (!match) return null;
+      return {
+        year: Number(match[1]),
+        month: Number(match[2]),
+        day: Number(match[3]),
+        hour: Number(match[4]),
+        minute: Number(match[5])
+      };
+    };
+    const addHours = (parts, hours) => {
+      const date = new Date(
+        parts.year,
+        parts.month - 1,
+        parts.day,
+        parts.hour,
+        parts.minute
+      );
+      date.setHours(date.getHours() + hours);
+      return {
+        year: date.getFullYear(),
+        month: date.getMonth() + 1,
+        day: date.getDate(),
+        hour: date.getHours(),
+        minute: date.getMinutes()
+      };
+    };
+
+    const startParts =
+      parseDate(data.weddingDate) ||
+      addHours(
+        {
+          year: new Date().getFullYear(),
+          month: new Date().getMonth() + 1,
+          day: new Date().getDate(),
+          hour: new Date().getHours(),
+          minute: new Date().getMinutes()
+        },
+        24
+      );
+    const endParts = addHours(startParts, 2);
+    const dtStart = toIcsDate(startParts);
+    const dtEnd = toIcsDate(endParts);
+    const dtStamp = new Date()
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .split(".")[0]
+      .concat("Z");
+    const uid = \`wedding-\${Date.now()}@weddingmanager\`;
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Wedding Manager//CN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      "BEGIN:VEVENT",
+      \`UID:\${uid}\`,
+      \`DTSTAMP:\${dtStamp}\`,
+      \`DTSTART;TZID=Asia/Shanghai:\${dtStart}\`,
+      \`DTEND;TZID=Asia/Shanghai:\${dtEnd}\`,
+      \`SUMMARY:\${data.coupleName || "婚礼邀请"}\`,
+      \`LOCATION:\${data.weddingLocation || "婚礼现场"}\`,
+      \`DESCRIPTION:\${(data.heroMessage || "诚挚邀请你出席我们的婚礼").replaceAll(
+        "\\n",
+        "\\\\n"
+      )}\`,
+      "END:VEVENT",
+      "END:VCALENDAR"
+    ].join("\\r\\n");
+
+    if (calendarLink) {
+      const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      calendarLink.href = url;
+      calendarLink.download = "wedding-invite.ics";
+    }
+
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const width = canvas.width;
+      const height = canvas.height;
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, "#fff5f8");
+      gradient.addColorStop(1, "#f3f4ff");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#e8dfe6";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(24, 24, width - 48, height - 48);
+
+      ctx.fillStyle = "#2f2a26";
+      ctx.textAlign = "center";
+      ctx.font = "bold 36px 'Inter', 'PingFang SC', sans-serif";
+      ctx.fillText(data.coupleName || "我们的婚礼", width / 2, 120);
+
+      ctx.fillStyle = "#6c5c53";
+      ctx.font = "20px 'Inter', 'PingFang SC', sans-serif";
+      ctx.fillText(data.weddingDate || "", width / 2, 190);
+      ctx.fillText(data.weddingLocation || "", width / 2, 230);
+
+      ctx.fillStyle = "#8a7a70";
+      ctx.font = "18px 'Inter', 'PingFang SC', sans-serif";
+      const message =
+        data.heroMessage || "期待与你及亲朋的美好相聚";
+      ctx.fillText(message, width / 2, 300);
+
+      ctx.fillStyle = "#b7a6a0";
+      ctx.font = "16px 'Inter', 'PingFang SC', sans-serif";
+      ctx.fillText("Wedding Manager", width / 2, height - 80);
+
+      if (downloadButton) {
+        downloadButton.href = canvas.toDataURL("image/png");
+        downloadButton.download = "婚礼信息卡.png";
+      }
+    }
+  })();
+`;
+};
+
 const attendeePickerScript = `
   (() => {
     const pickers = Array.from(
@@ -1891,7 +2034,21 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
           <h2>填写来宾信息</h2>
           ${
             String(submitted) === "1"
-              ? `<div class="success">已收到你的信息，感谢祝福！可再次提交以修改。</div>`
+              ? `<div class="invite-success">
+            <div class="invite-success-text">
+              已收到你的信息，感谢祝福！期待与您及亲朋在婚礼现场相见。
+            </div>
+            <div class="invite-success-card">
+              <canvas id="inviteCardCanvas" width="720" height="480"></canvas>
+            </div>
+            <div class="invite-success-actions">
+              <a class="btn ghost" id="inviteCardDownload" href="#">下载信息卡</a>
+              <a class="btn primary" id="inviteAddCalendar" href="#">一键加入日历</a>
+            </div>
+            <div class="invite-success-note">
+              提示：点击“加入日历”会下载 .ics 文件，iOS/安卓/微信内置浏览器均可打开并添加至日历。
+            </div>
+          </div>`
               : ""
           }
           <form method="post" action="/invite/rsvp" class="form-stack">
@@ -1965,6 +2122,7 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
   </body>
   <script>
     ${attendeePickerScript}
+    ${renderInviteSuccessScript(settings, submitted)}
   </script>
 </html>
 `;
