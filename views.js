@@ -6,6 +6,49 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
+const attendeeOptions = ["1", "2", "3", "4+"];
+
+const normalizeAttendeeValue = (value) => {
+  const normalized = String(value || "").trim();
+  return normalized || "1";
+};
+
+const renderAttendeeSelect = ({
+  name,
+  value,
+  required = false,
+  form,
+  dataAutoSave = false
+}) => {
+  const normalized = normalizeAttendeeValue(value);
+  return `
+      <select name="${escapeHtml(name)}" ${
+    form ? `form="${escapeHtml(form)}"` : ""
+  } ${required ? "required" : ""} ${
+    dataAutoSave ? "data-auto-save=\"true\"" : ""
+  }>
+        ${attendeeOptions
+          .map(
+            (option) =>
+              `<option value="${escapeHtml(option)}" ${
+                option === normalized ? "selected" : ""
+              }>${escapeHtml(option)}</option>`
+          )
+          .join("")}
+      </select>`;
+};
+
+const renderAttendingSelect = ({ name, value, required = false, form }) => {
+  const isAttending = Boolean(value);
+  return `
+      <select name="${escapeHtml(name)}" ${
+    form ? `form="${escapeHtml(form)}"` : ""
+  } ${required ? "required" : ""}>
+        <option value="yes" ${isAttending ? "selected" : ""}>出席</option>
+        <option value="no" ${!isAttending ? "selected" : ""}>不出席</option>
+      </select>`;
+};
+
 const getAttendeeLabel = (guest) => {
   const rawValue = guest?.responses?.attendees;
   if (!rawValue) return null;
@@ -513,6 +556,14 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
       <input type="tel" name="phone" required />
     </label>
     <label>
+      出席人数
+      ${renderAttendeeSelect({ name: "attendees", required: true })}
+    </label>
+    <label>
+      出席情况
+      ${renderAttendingSelect({ name: "attending", value: true, required: true })}
+    </label>
+    <label>
       席位号
       ${renderTableOptions()}
     </label>
@@ -521,10 +572,6 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         ? ""
         : `<p class="muted full">请先在下方新增桌子，再为来宾分配席位。</p>`
     }
-    <label class="inline">
-      <input type="checkbox" name="attending" checked />
-      出席
-    </label>
     ${fields
       .map((field) => {
         if (field.field_type === "textarea") {
@@ -727,6 +774,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         <th>姓名</th>
         <th>手机号</th>
         <th>出席</th>
+        <th>出席人数</th>
         <th>席位号</th>
         <th>自定义信息</th>
         <th>操作</th>
@@ -775,7 +823,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         <td>
           <input type="text" name="name" value="${escapeHtml(
             guest.name
-          )}" form="guest-form-${guest.id}" />
+          )}" form="guest-form-${guest.id}" required />
           ${
             getCompanionLabel(guest)
               ? `<div class="muted">显示：${escapeHtml(
@@ -792,15 +840,23 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         <td>
           <input type="tel" name="phone" value="${escapeHtml(
             guest.phone
-          )}" form="guest-form-${guest.id}" />
+          )}" form="guest-form-${guest.id}" required />
         </td>
         <td>
-          <label class="inline">
-            <input type="checkbox" name="attending" ${
-              guest.attending ? "checked" : ""
-            } form="guest-form-${guest.id}" />
-            出席
-          </label>
+          ${renderAttendingSelect({
+            name: "attending",
+            value: guest.attending,
+            required: true,
+            form: `guest-form-${guest.id}`
+          })}
+        </td>
+        <td>
+          ${renderAttendeeSelect({
+            name: "attendees",
+            value: guest.responses?.attendees,
+            required: true,
+            form: `guest-form-${guest.id}`
+          })}
         </td>
         <td>
           <select name="table_no" form="guest-form-${guest.id}" data-auto-save="true">
@@ -858,7 +914,9 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
                   ${escapeHtml(field.label)}
                   <textarea name="${escapeHtml(
                     field.field_key
-                  )}" rows="2" form="guest-form-${guest.id}">${escapeHtml(
+                  )}" rows="2" form="guest-form-${guest.id}" ${
+                        field.required ? "required" : ""
+                      }>${escapeHtml(
                         value
                       )}</textarea>
                 </label>`;
@@ -880,7 +938,9 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
                   ${escapeHtml(field.label)}
                   <select name="${escapeHtml(
                     field.field_key
-                  )}" form="guest-form-${guest.id}">
+                  )}" form="guest-form-${guest.id}" ${
+                        field.required ? "required" : ""
+                      }>
                     <option value="">请选择</option>
                     ${options}
                   </select>
@@ -893,7 +953,9 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
                     field.field_key
                   )}" value="${escapeHtml(
                       value
-                    )}" form="guest-form-${guest.id}" />
+                    )}" form="guest-form-${guest.id}" ${
+                        field.required ? "required" : ""
+                      } />
                 </label>`;
                   })
                   .join("")}
@@ -1768,9 +1830,13 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
               手机号
               <input type="tel" name="phone" required />
             </label>
-            <label class="inline">
-              <input type="checkbox" name="attending" checked />
-              我将出席婚礼
+            <label>
+              出席人数
+              ${renderAttendeeSelect({ name: "attendees", required: true })}
+            </label>
+            <label>
+              出席情况
+              ${renderAttendingSelect({ name: "attending", value: true, required: true })}
             </label>
             ${fields
               .map((field) => {

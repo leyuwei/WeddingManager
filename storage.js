@@ -124,14 +124,6 @@ const seedStore = (store) => {
     store.invitation_fields = [
       {
         id: nextId(store, "invitation_fields"),
-        label: "出席人数",
-        field_key: "attendees",
-        field_type: "select",
-        options: "1,2,3,4+",
-        required: true
-      },
-      {
-        id: nextId(store, "invitation_fields"),
         label: "忌口/过敏",
         field_key: "dietary",
         field_type: "text",
@@ -139,6 +131,10 @@ const seedStore = (store) => {
         required: false
       }
     ];
+  } else {
+    store.invitation_fields = store.invitation_fields.filter(
+      (field) => field.field_key !== "attendees"
+    );
   }
 
   if (!store.settings || Object.keys(store.settings).length === 0) {
