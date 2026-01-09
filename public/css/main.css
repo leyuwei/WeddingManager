@@ -665,6 +665,16 @@ textarea {
   background: #fff3f0;
 }
 
+.guest-row-adjusted {
+  background: #fff7e6;
+}
+
+.adjusted-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #b26a00;
+}
+
 .field-error {
   margin-top: 6px;
   color: #b94949;

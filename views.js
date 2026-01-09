@@ -737,7 +737,12 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         .map((guest, index) => {
           const tableNo = String(guest.table_no || "").trim();
           const hasValidTable = tableNo && tableNos.has(tableNo);
-          const rowClass = hasValidTable ? "" : ' class="guest-row-alert"';
+          const rowClasses = [];
+          if (!hasValidTable) rowClasses.push("guest-row-alert");
+          if (guest.attendee_adjusted) rowClasses.push("guest-row-adjusted");
+          const rowClass = rowClasses.length
+            ? ` class="${rowClasses.join(" ")}"`
+            : "";
           const isErrorGuest =
             error && Number(errorGuestId) === Number(guest.id);
           const prevGuest = guests[index - 1];
@@ -776,6 +781,11 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
               ? `<div class="muted">显示：${escapeHtml(
                   formatGuestDisplayName(guest)
                 )}</div>`
+              : ""
+          }
+          ${
+            guest.attendee_adjusted
+              ? `<div class="adjusted-note">人数变动，请尽快调整桌位安排。</div>`
               : ""
           }
         </td>
@@ -1549,8 +1559,15 @@ const renderAdminCheckins = ({
           ? checkedInGuests
               .map(
                 (guest) => `
-      <tr>
-        <td>${escapeHtml(guest.name || "-")}</td>
+      <tr${guest.attendee_adjusted ? ' class="guest-row-adjusted"' : ""}>
+        <td>
+          ${escapeHtml(guest.name || "-")}
+          ${
+            guest.attendee_adjusted
+              ? `<div class="adjusted-note">人数变动，请尽快调整桌位安排。</div>`
+              : ""
+          }
+        </td>
         <td>${escapeHtml(guest.phone || "-")}</td>
         <td>${escapeHtml(guest.table_no || "未分配")}</td>
         <td>${escapeHtml(guest.checkin?.actual_attendees || "-")}</td>

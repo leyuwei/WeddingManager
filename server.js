@@ -221,6 +221,37 @@ const getAssignedSeats = (guests, tableNo, excludeGuestId = null) =>
     return sum + getGuestPartySizeFromResponses(guest.responses || {});
   }, 0);
 
+const getStoredAttendeeCount = (guest) => {
+  const responses = guest.responses || {};
+  if (!Object.prototype.hasOwnProperty.call(responses, "attendees")) {
+    return null;
+  }
+  return parsePartySize(responses.attendees);
+};
+
+const syncGuestAttendeesWithCheckin = (guest, actualAttendees) => {
+  const responses = guest.responses || {};
+  const recordedAttendees = getStoredAttendeeCount(guest);
+  if (recordedAttendees === null) {
+    guest.responses = { ...responses, attendees: String(actualAttendees) };
+    guest.attendee_adjusted = false;
+    delete guest.attendee_adjusted_from;
+    delete guest.attendee_adjusted_at;
+    return;
+  }
+  if (recordedAttendees !== actualAttendees) {
+    guest.responses = { ...responses, attendees: String(actualAttendees) };
+    guest.attendee_adjusted = true;
+    guest.attendee_adjusted_from = recordedAttendees;
+    guest.attendee_adjusted_at = new Date().toISOString();
+    return;
+  }
+  guest.responses = { ...responses, attendees: String(actualAttendees) };
+  guest.attendee_adjusted = false;
+  delete guest.attendee_adjusted_from;
+  delete guest.attendee_adjusted_at;
+};
+
 const getValidTableNo = (value, tables) => {
   const tableNos = new Set(
     (tables || [])
@@ -1116,6 +1147,7 @@ const handleRequest = async (req, res) => {
       if (phone) guest.phone = phone;
       if (tableNo) guest.table_no = tableNo;
       guest.attending = true;
+      syncGuestAttendeesWithCheckin(guest, actualAttendees);
       guest.updated_at = new Date().toISOString();
     } else {
       guest = {
@@ -1129,6 +1161,7 @@ const handleRequest = async (req, res) => {
       };
       store.guests.push(guest);
     }
+    syncGuestAttendeesWithCheckin(guest, actualAttendees);
     upsertCheckin(store, guest.id, actualAttendees);
     saveStore(store);
     redirect(res, "/admin/checkins");
@@ -1147,9 +1180,13 @@ const handleRequest = async (req, res) => {
       Number.parseInt(body.actual_attendees, 10) || 1,
       1
     );
-    store.guests = store.guests.map((guest) =>
-      guest.id === id ? { ...guest, table_no: tableNo } : guest
-    );
+    store.guests = store.guests.map((guest) => {
+      if (guest.id !== id) return guest;
+      const updatedGuest = { ...guest, table_no: tableNo };
+      syncGuestAttendeesWithCheckin(updatedGuest, actualAttendees);
+      updatedGuest.updated_at = new Date().toISOString();
+      return updatedGuest;
+    });
     updateCheckinAttendees(store, id, actualAttendees);
     saveStore(store);
     redirect(res, "/admin/checkins");
@@ -1352,6 +1389,7 @@ const handleRequest = async (req, res) => {
         table_no: "",
         updated_at: new Date().toISOString()
       };
+      syncGuestAttendeesWithCheckin(guest, actualAttendees);
       store.guests.push(guest);
       const checkinRecord = upsertCheckin(store, guest.id, actualAttendees);
       saveStore(store);
@@ -1447,6 +1485,7 @@ const handleRequest = async (req, res) => {
         guest.name = lookupInput;
       }
       guest.attending = true;
+      syncGuestAttendeesWithCheckin(guest, actualAttendees);
       guest.updated_at = new Date().toISOString();
     }
     const checkinRecord = upsertCheckin(store, guest.id, actualAttendees);
