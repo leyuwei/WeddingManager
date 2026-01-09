@@ -27,9 +27,11 @@ const renderAttendeeInput = ({
   const normalized = normalizeAttendeeValue(value);
   const listId = toDomId(`attendees-${name}-${form || "default"}`);
   return `
-      <input type="number" name="${escapeHtml(name)}" min="1" value="${escapeHtml(
+      <input type="text" name="${escapeHtml(
+    name
+  )}" inputmode="numeric" pattern="[0-9]*" value="${escapeHtml(
     normalized
-  )}" list="${escapeHtml(listId)}" ${
+  )}" list="${escapeHtml(listId)}" class="attendee-input" ${
     form ? `form="${escapeHtml(form)}"` : ""
   } ${required ? "required" : ""} ${
     dataAutoSave ? "data-auto-save=\"true\"" : ""
@@ -774,13 +776,14 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
       </form>
     </div>
   </div>
-  <table class="table">
+  <div class="table-scroll">
+  <table class="table guest-table">
     <thead>
       <tr>
         <th>姓名</th>
         <th>手机号</th>
         <th>出席</th>
-        <th>出席人数</th>
+        <th class="attendee-count-col">出席人数</th>
         <th>席位号</th>
         <th>自定义信息</th>
         <th>操作</th>
@@ -856,7 +859,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
             form: `guest-form-${guest.id}`
           })}
         </td>
-        <td>
+        <td class="attendee-count-col">
           ${renderAttendeeInput({
             name: "attendees",
             value: guest.responses?.attendees,
@@ -992,6 +995,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         .join("")}
     </tbody>
   </table>
+  </div>
 </section>
 <script>
   (() => {

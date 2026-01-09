@@ -319,6 +319,27 @@ body {
 
 .table-scroll {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px;
+  scrollbar-gutter: stable;
+}
+
+.table-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.table-scroll::-webkit-scrollbar-track {
+  background: #efe8e1;
+  border-radius: 999px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+  background: #cbbdb1;
+  border-radius: 999px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: #b8a89c;
 }
 
 .ledger-table input,
@@ -427,6 +448,14 @@ textarea {
   padding: 12px;
   border-bottom: 1px solid #eee;
   font-size: 14px;
+}
+
+.guest-table .attendee-count-col {
+  width: 110px;
+}
+
+.attendee-input {
+  min-width: 80px;
 }
 
 .custom-info-cell {
