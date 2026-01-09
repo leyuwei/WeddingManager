@@ -75,6 +75,38 @@ const parseBody = (req) =>
     });
   });
 
+const getForwardedHeaderValue = (headerValue) => {
+  if (!headerValue) return null;
+  return String(headerValue).split(",")[0].trim();
+};
+
+const parseForwardedHeader = (forwarded) => {
+  if (!forwarded) return {};
+  return String(forwarded)
+    .split(",")[0]
+    .split(";")
+    .reduce((acc, part) => {
+      const [key, value] = part.split("=");
+      if (!key || !value) return acc;
+      acc[key.trim().toLowerCase()] = value.trim().replace(/^"|"$/g, "");
+      return acc;
+    }, {});
+};
+
+const getBaseUrl = (req) => {
+  const forwarded = parseForwardedHeader(req.headers.forwarded);
+  const protoHeader =
+    getForwardedHeaderValue(req.headers["x-forwarded-proto"]) ||
+    forwarded.proto;
+  const hostHeader =
+    getForwardedHeaderValue(req.headers["x-forwarded-host"]) ||
+    forwarded.host ||
+    req.headers.host;
+  const proto = protoHeader || "http";
+  const host = hostHeader || "localhost";
+  return `${proto}://${host}`;
+};
+
 const ledgerCategories = [
   { value: "场地租用", label: "场地租用" },
   { value: "婚礼仪式", label: "婚礼仪式" },
@@ -313,10 +345,9 @@ const handleRequest = async (req, res) => {
     const totalTableCount = store.tables.length;
     const prizeCount = store.prizes.length;
     const winnerCount = store.winners.length;
-    const proto = req.headers["x-forwarded-proto"] || "http";
-    const host = req.headers.host || "localhost";
-    const inviteUrl = `${proto}://${host}/invite`;
-    const checkinUrl = `${proto}://${host}/checkin`;
+    const baseUrl = getBaseUrl(req);
+    const inviteUrl = `${baseUrl}/invite`;
+    const checkinUrl = `${baseUrl}/checkin`;
     sendResponse(
       res,
       200,
@@ -422,9 +453,8 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
-    const proto = req.headers["x-forwarded-proto"] || "http";
-    const host = req.headers.host || "localhost";
-    const inviteUrl = `${proto}://${host}/invite`;
+    const baseUrl = getBaseUrl(req);
+    const inviteUrl = `${baseUrl}/invite`;
     sendResponse(
       res,
       200,
@@ -1019,16 +1049,24 @@ const handleRequest = async (req, res) => {
     if (!session) return;
     const store = loadStore();
     const { checkedInGuests, pendingGuests } = getCheckedInGuests(store);
-    const proto = req.headers["x-forwarded-proto"] || "http";
-    const host = req.headers.host || "localhost";
-    const checkinUrl = `${proto}://${host}/checkin`;
+    const totalAttendees = (store.guests || []).reduce(
+      (sum, guest) =>
+        sum + getGuestPartySizeFromResponses(guest.responses || {}),
+      0
+    );
+    const checkedInAttendees = checkedInGuests.reduce(
+      (sum, guest) => sum + parsePartySize(guest.checkin?.actual_attendees),
+      0
+    );
+    const baseUrl = getBaseUrl(req);
+    const checkinUrl = `${baseUrl}/checkin`;
     sendResponse(
       res,
       200,
       renderAdminCheckins({
         checkinUrl,
-        totalGuests: store.guests.length,
-        checkedInCount: checkedInGuests.length,
+        totalGuests: totalAttendees,
+        checkedInCount: checkedInAttendees,
         checkedInGuests,
         pendingGuests,
         tables: sortTables(store.tables)
