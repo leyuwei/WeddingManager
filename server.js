@@ -331,10 +331,11 @@ const handleRequest = async (req, res) => {
       (sum, guest) => sum + getGuestPartySizeFromResponses(guest.responses || {}),
       0
     );
-    const checkedInGuestCount = (store.checkins || []).reduce(
-      (sum, checkin) => sum + parsePartySize(checkin.actual_attendees),
-      0
-    );
+    const guestIds = new Set(store.guests.map((guest) => guest.id));
+    const checkedInGuestCount = (store.checkins || []).reduce((sum, checkin) => {
+      if (!guestIds.has(checkin.guest_id)) return sum;
+      return sum + parsePartySize(checkin.actual_attendees);
+    }, 0);
     const pendingCheckinGuestCount = Math.max(
       registeredGuestCount - checkedInGuestCount,
       0
@@ -840,6 +841,17 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  if (req.method === "POST" && pathname === "/admin/guests/clear") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    store.guests = [];
+    store.checkins = [];
+    saveStore(store);
+    redirect(res, "/admin/guests");
+    return;
+  }
+
   const guestUpdateMatch = pathname.match(/^\/admin\/guests\/(\d+)\/update$/);
   if (req.method === "POST" && guestUpdateMatch) {
     const session = requireAdmin(req, res);
@@ -907,7 +919,8 @@ const handleRequest = async (req, res) => {
     );
     saveStore(store);
     const returnTo = (body.return_to || "").trim();
-    redirect(res, returnTo || "/admin/guests");
+    const hash = returnTo ? `#${encodeURIComponent(returnTo)}` : "";
+    redirect(res, `/admin/guests${hash}`);
     return;
   }
 

@@ -714,7 +714,12 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
       <h1>来宾信息统计</h1>
       <p>可直接编辑来宾信息并保存修改。未分配或桌号不存在的来宾将高亮提醒。</p>
     </div>
-    <a class="btn ghost" href="/admin/guests/export">导出Excel</a>
+    <div class="section-actions">
+      <a class="btn ghost" href="/admin/guests/export">导出Excel</a>
+      <form method="post" action="/admin/guests/clear" class="inline-form">
+        <button class="btn ghost" type="submit" onclick="return confirm('确定要清除所有来宾与签到数据吗？此操作不可恢复。') && confirm('请再次确认：确定要清除所有来宾与签到数据吗？');">清除来宾与签到</button>
+      </form>
+    </div>
   </div>
   <table class="table">
     <thead>
@@ -729,12 +734,15 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
     </thead>
     <tbody>
       ${guests
-        .map((guest) => {
+        .map((guest, index) => {
           const tableNo = String(guest.table_no || "").trim();
           const hasValidTable = tableNo && tableNos.has(tableNo);
           const rowClass = hasValidTable ? "" : ' class="guest-row-alert"';
           const isErrorGuest =
             error && Number(errorGuestId) === Number(guest.id);
+          const prevGuest = guests[index - 1];
+          const nextGuest = guests[index + 1];
+          const focusGuestId = nextGuest?.id || prevGuest?.id || guest.id;
           const customInfoItems = fields.map((field) => {
             const value = (guest.responses || {})[field.field_key] || "";
             return {
@@ -896,6 +904,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
               <button class="btn ghost" type="submit">保存</button>
             </form>
             <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
+              <input type="hidden" name="return_to" value="guest-${focusGuestId}" />
               <button class="btn ghost" type="submit" onclick="return confirm('确认删除该来宾吗？');">删除</button>
             </form>
           </div>
