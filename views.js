@@ -17,6 +17,12 @@ const normalizeAttendeeValue = (value) => {
 
 const toDomId = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "-");
 
+const clampNumber = (value, min, max, fallback) => {
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+};
+
 const renderAttendeeInput = ({
   name,
   value,
@@ -622,6 +628,12 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
       头图文案
       <input type="text" name="hero_message" value="${escapeHtml(
         settings.hero_message || ""
+      )}" />
+    </label>
+    <label>
+      来宾页面字号放大倍数
+      <input type="number" name="guest_font_scale" min="1" max="2.5" step="0.1" value="${escapeHtml(
+        settings.guest_font_scale || "1.1"
       )}" />
     </label>
     <button class="btn primary" type="submit">保存设置</button>
@@ -1988,7 +2000,9 @@ const renderAdminCheckins = ({
   );
 };
 
-const renderInvite = ({ settings, sections, fields, submitted }) => `
+const renderInvite = ({ settings, sections, fields, submitted }) => {
+  const guestFontScale = clampNumber(settings?.guest_font_scale, 1, 2.5, 1.1);
+  return `
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -2000,7 +2014,7 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
     <title>婚礼请柬</title>
     <link rel="stylesheet" href="/public/css/invite.css" />
   </head>
-  <body>
+  <body style="--guest-font-scale: ${guestFontScale};">
     <div class="invite">
 
       ${
@@ -2129,6 +2143,7 @@ const renderInvite = ({ settings, sections, fields, submitted }) => `
   </script>
 </html>
 `;
+};
 
 const renderCheckin = ({
   settings,
@@ -2138,7 +2153,9 @@ const renderCheckin = ({
   prompt,
   formValues,
   newGuestForm
-}) => `
+}) => {
+  const guestFontScale = clampNumber(settings?.guest_font_scale, 1, 2.5, 1.1);
+  return `
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -2150,7 +2167,7 @@ const renderCheckin = ({
     <title>现场签到</title>
     <link rel="stylesheet" href="/public/css/checkin.css" />
   </head>
-  <body>
+  <body style="--guest-font-scale: ${guestFontScale};">
     <div class="checkin-page">
       <header class="checkin-hero">
         <div class="hero-card">
@@ -2473,6 +2490,7 @@ const renderCheckin = ({
   </body>
 </html>
 `;
+};
 
 const renderLottery = ({ prizes, isAdmin, guests, winners }) => {
   const winnerGuestIds = new Set((winners || []).map((winner) => winner.guest_id));

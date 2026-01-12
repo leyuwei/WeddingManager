@@ -530,12 +530,17 @@ const handleRequest = async (req, res) => {
     if (!session) return;
     const body = await parseBody(req);
     const store = loadStore();
+    const parsedFontScale = Number(body.guest_font_scale);
+    const guestFontScale = Number.isNaN(parsedFontScale)
+      ? store.settings.guest_font_scale || 1.1
+      : Math.min(2.5, Math.max(1, parsedFontScale));
     store.settings = {
       ...store.settings,
       couple_name: body.couple_name || "",
       wedding_date: body.wedding_date || "",
       wedding_location: body.wedding_location || "",
-      hero_message: body.hero_message || ""
+      hero_message: body.hero_message || "",
+      guest_font_scale: guestFontScale
     };
     saveStore(store);
     redirect(res, "/admin/invitation");

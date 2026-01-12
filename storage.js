@@ -142,8 +142,14 @@ const seedStore = (store) => {
       couple_name: "林曦 & 周然",
       wedding_date: "2025年5月20日 17:30",
       wedding_location: "海滨花园宴会厅",
-      hero_message: "诚挚邀请你见证我们的幸福时刻"
+      hero_message: "诚挚邀请你见证我们的幸福时刻",
+      guest_font_scale: 1.1
     };
+  } else if (
+    store.settings.guest_font_scale === undefined ||
+    store.settings.guest_font_scale === null
+  ) {
+    store.settings.guest_font_scale = 1.1;
   }
 
   store.guests = store.guests || [];
