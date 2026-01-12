@@ -372,6 +372,13 @@ body {
   grid-column: 1 / -1;
 }
 
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
 label {
   display: flex;
   flex-direction: column;

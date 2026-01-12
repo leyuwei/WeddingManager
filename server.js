@@ -75,6 +75,43 @@ const parseBody = (req) =>
     });
   });
 
+const uploadDir = path.join(__dirname, "public", "uploads");
+const ensureUploadDir = () => {
+  fs.mkdirSync(uploadDir, { recursive: true });
+};
+
+const getAudioExtension = (mimeType, filename) => {
+  const normalized = String(mimeType || "").toLowerCase();
+  const extFromMime = {
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/ogg": ".ogg",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/webm": ".webm"
+  };
+  if (extFromMime[normalized]) {
+    return extFromMime[normalized];
+  }
+  const ext = path.extname(filename || "").toLowerCase();
+  if (ext) return ext;
+  return ".mp3";
+};
+
+const removeInviteMusicFile = (musicUrl) => {
+  if (!musicUrl) return;
+  if (!musicUrl.startsWith("/public/uploads/")) return;
+  const relativePath = musicUrl.replace(/^\//, "");
+  const filePath = path.join(__dirname, relativePath);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch (error) {
+      // ignore cleanup errors
+    }
+  }
+};
+
 const getForwardedHeaderValue = (headerValue) => {
   if (!headerValue) return null;
   return String(headerValue).split(",")[0].trim();
@@ -148,7 +185,11 @@ const serveStatic = (req, res, pathname) => {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
-    ".svg": "image/svg+xml"
+    ".svg": "image/svg+xml",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
+    ".webm": "audio/webm"
   };
   const contentType = types[ext] || "application/octet-stream";
   const content = fs.readFileSync(filePath);
@@ -542,6 +583,58 @@ const handleRequest = async (req, res) => {
       hero_message: body.hero_message || "",
       guest_font_scale: guestFontScale
     };
+    saveStore(store);
+    redirect(res, "/admin/invitation");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/invitation/music") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const dataUrl = body.dataUrl || "";
+    const filename = body.filename || "";
+    const match = String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      sendResponse(res, 400, "无效的音频数据。", "text/plain");
+      return;
+    }
+    const mimeType = match[1];
+    if (!mimeType.startsWith("audio/")) {
+      sendResponse(res, 400, "仅支持上传音频文件。", "text/plain");
+      return;
+    }
+    const buffer = Buffer.from(match[2], "base64");
+    if (!buffer.length) {
+      sendResponse(res, 400, "音频内容为空。", "text/plain");
+      return;
+    }
+    if (buffer.length > 15 * 1024 * 1024) {
+      sendResponse(res, 400, "音频文件过大，请上传 15MB 以内文件。", "text/plain");
+      return;
+    }
+    ensureUploadDir();
+    const ext = getAudioExtension(mimeType, filename);
+    const safeName = `invite-music-${Date.now()}${ext}`;
+    const filePath = path.join(uploadDir, safeName);
+    fs.writeFileSync(filePath, buffer);
+    const store = loadStore();
+    removeInviteMusicFile(store.settings.invitation_music_url);
+    store.settings = {
+      ...store.settings,
+      invitation_music_url: `/public/uploads/${safeName}`
+    };
+    saveStore(store);
+    sendResponse(res, 200, "ok", "text/plain");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/invitation/music/delete") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    removeInviteMusicFile(store.settings.invitation_music_url);
+    store.settings = { ...store.settings, invitation_music_url: "" };
     saveStore(store);
     redirect(res, "/admin/invitation");
     return;
