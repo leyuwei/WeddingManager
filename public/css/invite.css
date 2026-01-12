@@ -17,7 +17,7 @@ body {
 }
 
 .invite {
-  scroll-snap-type: y proximity;
+  scroll-snap-type: y mandatory;
   overflow-y: auto;
   height: 100vh;
 }
@@ -92,7 +92,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 32px 20px;
-  scroll-snap-align: start;
+  scroll-snap-align: none;
 }
 
 .rsvp-card {
