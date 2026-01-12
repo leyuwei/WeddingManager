@@ -1,11 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=Inter:wght@400;600&display=swap");
 
-@media (max-width: 768px) {
-  input,
-  textarea,
-  select {
-    font-size: 16px;
-  }
+:root {
+  --guest-font-scale: 1;
 }
 
 * {
@@ -15,6 +11,7 @@
 body {
   margin: 0;
   font-family: "Inter", "PingFang SC", sans-serif;
+  font-size: calc(16px * var(--guest-font-scale));
   background: linear-gradient(135deg, #fff7f9 0%, #f3f6ff 100%);
   color: #2f2a26;
 }
@@ -45,7 +42,7 @@ body {
 .hero-card h1 {
   margin: 0 0 8px;
   font-family: "Playfair Display", serif;
-  font-size: 32px;
+  font-size: calc(32px * var(--guest-font-scale));
 }
 
 .hero-card p {
@@ -58,7 +55,7 @@ body {
   justify-content: center;
   gap: 16px;
   flex-wrap: wrap;
-  font-size: 14px;
+  font-size: calc(14px * var(--guest-font-scale));
   color: #8a7c71;
 }
 
@@ -88,11 +85,13 @@ label {
   font-weight: 600;
 }
 
-input {
+input,
+select,
+textarea {
   padding: 12px;
   border-radius: 12px;
   border: 1px solid #e3dcd5;
-  font-size: 14px;
+  font-size: clamp(16px, calc(16px * var(--guest-font-scale)), 24px);
 }
 
 .inline {
@@ -110,7 +109,7 @@ input {
   font-weight: 600;
   background: #2f2a26;
   color: #fff;
-  font-size: 15px;
+  font-size: calc(15px * var(--guest-font-scale));
 }
 
 .muted {
@@ -130,7 +129,7 @@ input {
   color: #6d4c00;
   padding: 10px 12px;
   border-radius: 10px;
-  font-size: 13px;
+  font-size: calc(13px * var(--guest-font-scale));
   margin-bottom: 12px;
 }
 
@@ -215,7 +214,7 @@ input {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
-  font-size: 14px;
+  font-size: calc(14px * var(--guest-font-scale));
 }
 
 .result-info strong {
