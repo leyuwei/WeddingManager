@@ -641,6 +641,40 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
 </section>
 
 <section class="card">
+  <h2>请柬背景音乐</h2>
+  <p class="muted">上传后，来宾打开请柬将自动循环播放，可点击左上角音乐按钮暂停/播放。</p>
+  <div class="form-grid">
+    <label class="full">
+      上传音乐文件
+      <input type="file" id="inviteMusicFile" accept="audio/*" />
+    </label>
+    <div class="full inline-actions">
+      <button class="btn primary" type="button" id="inviteMusicUpload">上传并启用</button>
+      ${
+        settings.invitation_music_url
+          ? `<form method="post" action="/admin/invitation/music/delete">
+              <button class="btn ghost" type="submit">移除背景音乐</button>
+            </form>`
+          : ""
+      }
+    </div>
+    <div class="full">
+      <div class="muted" id="inviteMusicStatus"></div>
+    </div>
+    ${
+      settings.invitation_music_url
+        ? `<div class="full">
+            <audio controls src="${escapeHtml(
+              settings.invitation_music_url
+            )}"></audio>
+            <p class="muted">当前已启用背景音乐</p>
+          </div>`
+        : `<div class="full muted">尚未设置背景音乐。</div>`
+    }
+  </div>
+</section>
+
+<section class="card">
   <h2>请柬页面分屏</h2>
   <form method="post" action="/admin/invitation/sections" class="form-grid">
     <label>
@@ -728,6 +762,52 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
       .join("")}
   </div>
 </section>
+<script>
+    (() => {
+      const uploadButton = document.getElementById("inviteMusicUpload");
+      const fileInput = document.getElementById("inviteMusicFile");
+      const status = document.getElementById("inviteMusicStatus");
+      if (!uploadButton || !fileInput || !status) return;
+
+      const setStatus = (message, isError = false) => {
+        status.textContent = message;
+        status.classList.toggle("alert", isError);
+        status.classList.toggle("muted", !isError);
+      };
+
+      uploadButton.addEventListener("click", () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) {
+          setStatus("请选择音频文件后再上传。", true);
+          return;
+        }
+        if (!file.type.startsWith("audio/")) {
+          setStatus("仅支持上传音频文件。", true);
+          return;
+        }
+        setStatus("正在上传，请稍候...");
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const response = await fetch("/admin/invitation/music", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ dataUrl: reader.result, filename: file.name })
+            });
+            if (response.ok) {
+              window.location.reload();
+              return;
+            }
+            const text = await response.text();
+            setStatus(text || "上传失败，请稍后再试。", true);
+          } catch (error) {
+            setStatus("上传失败，请检查网络连接。", true);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    })();
+  </script>
 `
   );
 
@@ -1606,6 +1686,7 @@ const renderTablePrint = ({ tables, guests }) => {
     })
     .join("");
 
+  const inviteMusicUrl = settings?.invitation_music_url || "";
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -2002,6 +2083,7 @@ const renderAdminCheckins = ({
 
 const renderInvite = ({ settings, sections, fields, submitted }) => {
   const guestFontScale = clampNumber(settings?.guest_font_scale, 1, 2.5, 1.1);
+  const inviteMusicUrl = settings?.invitation_music_url || "";
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -2016,6 +2098,16 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
   </head>
   <body style="--guest-font-scale: ${guestFontScale};">
     <div class="invite">
+      ${
+        inviteMusicUrl
+          ? `<button class="music-toggle" type="button" data-invite-music-toggle="true" aria-label="播放背景音乐">
+              <span class="music-icon">♪</span>
+            </button>
+            <audio id="inviteMusic" src="${escapeHtml(
+              inviteMusicUrl
+            )}" loop preload="auto"></audio>`
+          : ""
+      }
 
       ${
             String(submitted) === "1"
@@ -2140,6 +2232,59 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
   <script>
     ${attendeePickerScript}
     ${renderInviteSuccessScript(settings, submitted)}
+    (() => {
+      const musicButton = document.querySelector("[data-invite-music-toggle]");
+      const audio = document.getElementById("inviteMusic");
+      if (!musicButton || !audio) return;
+      let userPaused = false;
+
+      const setState = (isPlaying) => {
+        musicButton.classList.toggle("is-playing", isPlaying);
+        musicButton.setAttribute(
+          "aria-label",
+          isPlaying ? "暂停背景音乐" : "播放背景音乐"
+        );
+      };
+
+      const tryPlay = () => {
+        audio.muted = false;
+        const playPromise = audio.play();
+        if (playPromise && typeof playPromise.then === "function") {
+          playPromise.then(() => setState(true)).catch(() => setState(false));
+        } else {
+          setState(!audio.paused);
+        }
+      };
+
+      const unlockPlay = () => {
+        if (!userPaused && audio.paused) {
+          tryPlay();
+        }
+      };
+
+      tryPlay();
+
+      musicButton.addEventListener("click", () => {
+        if (audio.paused) {
+          userPaused = false;
+          tryPlay();
+        } else {
+          userPaused = true;
+          audio.pause();
+          setState(false);
+        }
+      });
+
+      audio.addEventListener("play", () => setState(true));
+      audio.addEventListener("pause", () => {
+        if (!userPaused) {
+          setState(false);
+        }
+      });
+
+      document.addEventListener("click", unlockPlay, { once: true });
+      document.addEventListener("touchstart", unlockPlay, { once: true });
+    })();
   </script>
 </html>
 `;
