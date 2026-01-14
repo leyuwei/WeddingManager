@@ -1686,7 +1686,6 @@ const renderTablePrint = ({ tables, guests }) => {
     })
     .join("");
 
-  const inviteMusicUrl = settings?.invitation_music_url || "";
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
