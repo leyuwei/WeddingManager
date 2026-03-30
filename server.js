@@ -98,6 +98,26 @@ const getAudioExtension = (mimeType, filename) => {
   return ".mp3";
 };
 
+const getImageExtension = (mimeType, filename) => {
+  const normalized = String(mimeType || "").toLowerCase();
+  const extFromMime = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/svg+xml": ".svg"
+  };
+  if (extFromMime[normalized]) {
+    return extFromMime[normalized];
+  }
+  const ext = path.extname(filename || "").toLowerCase();
+  if ([".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"].includes(ext)) {
+    return ext === ".jpeg" ? ".jpg" : ext;
+  }
+  return ".jpg";
+};
+
 const removeInviteMusicFile = (musicUrl) => {
   if (!musicUrl) return;
   if (!musicUrl.startsWith("/public/uploads/")) return;
@@ -159,7 +179,13 @@ const ledgerCategoryValues = new Set(
 const ledgerDirectionValues = new Set(["income", "expense"]);
 
 const sendResponse = (res, status, body, type = "text/html") => {
-  res.writeHead(status, { "Content-Type": `${type}; charset=utf-8` });
+  const headers = { "Content-Type": `${type}; charset=utf-8` };
+  if (type === "text/html") {
+    headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+    headers.Pragma = "no-cache";
+    headers.Expires = "0";
+  }
+  res.writeHead(status, headers);
   res.end(body);
 };
 
@@ -185,6 +211,8 @@ const serveStatic = (req, res, pathname) => {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
     ".svg": "image/svg+xml",
     ".mp3": "audio/mpeg",
     ".ogg": "audio/ogg",
@@ -193,7 +221,11 @@ const serveStatic = (req, res, pathname) => {
   };
   const contentType = types[ext] || "application/octet-stream";
   const content = fs.readFileSync(filePath);
-  res.writeHead(200, { "Content-Type": contentType });
+  const headers = { "Content-Type": contentType };
+  if ([".css", ".js"].includes(ext)) {
+    headers["Cache-Control"] = "no-cache";
+  }
+  res.writeHead(200, headers);
   res.end(content);
   return true;
 };
@@ -234,8 +266,18 @@ const normalizeLedgerDirection = (value) => {
   return "expense";
 };
 
+const normalizeLedgerDirectionFromImport = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (["收入", "进账", "income", "in"].includes(normalized)) return "income";
+  if (["支出", "花费", "expense", "out"].includes(normalized)) return "expense";
+  return normalizeLedgerDirection(normalized);
+};
+
 const parseLedgerAmount = (value) => {
-  const parsed = Number.parseFloat(String(value || "").trim());
+  const normalized = String(value || "").trim().replaceAll(",", "");
+  const parsed = Number.parseFloat(normalized);
   if (Number.isNaN(parsed) || parsed <= 0) return null;
   return parsed;
 };
@@ -244,6 +286,72 @@ const normalizeLedgerDate = (value) => {
   const normalized = String(value || "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
   return new Date().toISOString().slice(0, 10);
+};
+
+const parseCsvRows = (csvText) => {
+  const text = String(csvText || "");
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[index + 1] === '"') {
+          field += '"';
+          index += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (char === ",") {
+      row.push(field);
+      field = "";
+      continue;
+    }
+    if (char === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+    if (char === "\r") {
+      continue;
+    }
+    field += char;
+  }
+
+  row.push(field);
+  rows.push(row);
+  return rows;
+};
+
+const normalizeImportHeader = (value) =>
+  String(value || "")
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+
+const getImportHeaderIndex = (headers, candidateNames) => {
+  const normalizedHeaders = (headers || []).map(normalizeImportHeader);
+  for (const candidate of candidateNames) {
+    const index = normalizedHeaders.indexOf(normalizeImportHeader(candidate));
+    if (index >= 0) return index;
+  }
+  return -1;
 };
 
 const parsePartySize = (value) => {
@@ -260,6 +368,163 @@ const parseAttendingValue = (value) => {
   return null;
 };
 
+const normalizeExternalLink = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (/^(javascript|data|vbscript):/i.test(normalized)) return "";
+  return normalized;
+};
+
+const normalizeExternalLinks = (value) => {
+  const list = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/\r?\n|,/)
+        .map((item) => item.trim());
+  const normalized = list
+    .map((item) => normalizeExternalLink(item))
+    .filter(Boolean);
+  return [...new Set(normalized)];
+};
+
+const invitationFieldTypeValues = new Set([
+  "text",
+  "textarea",
+  "select",
+  "date",
+  "checkbox",
+  "radio"
+]);
+const invitationFieldTypesWithOptions = new Set(["select", "checkbox", "radio"]);
+
+const normalizeInvitationFieldType = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (invitationFieldTypeValues.has(normalized)) return normalized;
+  return "text";
+};
+
+const normalizeInvitationFieldOptions = (fieldType, value) => {
+  if (!invitationFieldTypesWithOptions.has(fieldType)) return "";
+  return String(value || "")
+    .split(",")
+    .map((option) => option.trim())
+    .filter(Boolean)
+    .join(",");
+};
+
+const normalizeInvitationField = (field = {}) => {
+  const fieldType = normalizeInvitationFieldType(field.field_type);
+  return {
+    ...field,
+    field_type: fieldType,
+    options: normalizeInvitationFieldOptions(fieldType, field.options)
+  };
+};
+
+const getInvitationFields = (store) =>
+  (store?.invitation_fields || []).map((field) => normalizeInvitationField(field));
+
+const builtInGuestFieldKeys = ["name", "phone", "attendees", "attending"];
+
+const normalizeInvitationGuestFieldOrder = (orderValue, fields = []) => {
+  const customKeys = (fields || [])
+    .map((field) => String(field.field_key || "").trim())
+    .filter(Boolean);
+  const allowed = new Set([...builtInGuestFieldKeys, ...customKeys]);
+  const rawOrder = Array.isArray(orderValue)
+    ? orderValue
+    : String(orderValue || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+  const ordered = [];
+  rawOrder.forEach((key) => {
+    if (!allowed.has(key)) return;
+    if (ordered.includes(key)) return;
+    ordered.push(key);
+  });
+  [...builtInGuestFieldKeys, ...customKeys].forEach((key) => {
+    if (ordered.includes(key)) return;
+    ordered.push(key);
+  });
+  return ordered;
+};
+
+const normalizeCheckboxResponse = (field, rawValue) => {
+  const values = (Array.isArray(rawValue) ? rawValue : [rawValue])
+    .flatMap((item) => String(item || "").split(","))
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!values.length) return "";
+
+  const options = normalizeInvitationFieldOptions(
+    "checkbox",
+    field?.options || ""
+  )
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (options.length) {
+    const optionSet = new Set(options);
+    const selected = values.filter((item) => optionSet.has(item));
+    return [...new Set(selected)].join(",");
+  }
+
+  const checked = values.some(
+    (item) => !["0", "false", "off", "no"].includes(item.toLowerCase())
+  );
+  return checked ? "1" : "";
+};
+
+const normalizeRadioResponse = (field, rawValue) => {
+  const singleValue = Array.isArray(rawValue)
+    ? rawValue[rawValue.length - 1]
+    : rawValue;
+  const normalized = String(singleValue || "").trim();
+  if (!normalized) return "";
+  const options = normalizeInvitationFieldOptions("radio", field?.options || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!options.length) return "";
+  return options.includes(normalized) ? normalized : "";
+};
+
+const normalizeInvitationFieldResponse = (field, rawValue) => {
+  const fieldType = normalizeInvitationFieldType(field?.field_type);
+  if (fieldType === "checkbox") {
+    return normalizeCheckboxResponse(field, rawValue);
+  }
+  if (fieldType === "radio") {
+    return normalizeRadioResponse(field, rawValue);
+  }
+  const singleValue = Array.isArray(rawValue)
+    ? rawValue[rawValue.length - 1]
+    : rawValue;
+  const normalized = String(singleValue || "").trim();
+  if (fieldType === "date" && normalized && !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return "";
+  }
+  return normalized;
+};
+
+const collectInvitationFieldResponses = (fields = [], body = {}) =>
+  (fields || []).reduce((responses, field) => {
+    responses[field.field_key] = normalizeInvitationFieldResponse(
+      field,
+      body[field.field_key]
+    );
+    return responses;
+  }, {});
+
+const hasRequiredFieldValue = (field, value) => {
+  const fieldType = normalizeInvitationFieldType(field?.field_type);
+  if (fieldType === "checkbox") {
+    return Boolean(normalizeCheckboxResponse(field, value));
+  }
+  return Boolean(String(value ?? "").trim());
+};
+
 const getMissingGuestFieldLabels = (values, fields = []) => {
   const missing = [];
   if (!values.name) missing.push("姓名");
@@ -269,8 +534,8 @@ const getMissingGuestFieldLabels = (values, fields = []) => {
   fields
     .filter((field) => field.required)
     .forEach((field) => {
-      const fieldValue = String(values.responses?.[field.field_key] || "").trim();
-      if (!fieldValue) missing.push(field.label);
+      const fieldValue = values.responses?.[field.field_key];
+      if (!hasRequiredFieldValue(field, fieldValue)) missing.push(field.label);
     });
   return missing;
 };
@@ -549,6 +814,7 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
+    const invitationFields = getInvitationFields(store);
     const baseUrl = getBaseUrl(req);
     const inviteUrl = `${baseUrl}/invite`;
     sendResponse(
@@ -559,7 +825,7 @@ const handleRequest = async (req, res) => {
         sections: store.invitation_sections.sort(
           (a, b) => a.sort_order - b.sort_order
         ),
-        fields: store.invitation_fields,
+        fields: invitationFields,
         inviteUrl
       })
     );
@@ -571,6 +837,7 @@ const handleRequest = async (req, res) => {
     if (!session) return;
     const body = await parseBody(req);
     const store = loadStore();
+    const invitationFields = getInvitationFields(store);
     const parsedFontScale = Number(body.guest_font_scale);
     const guestFontScale = Number.isNaN(parsedFontScale)
       ? store.settings.guest_font_scale || 1.1
@@ -580,7 +847,18 @@ const handleRequest = async (req, res) => {
       couple_name: body.couple_name || "",
       wedding_date: body.wedding_date || "",
       wedding_location: body.wedding_location || "",
+      wedding_location_map_url: normalizeExternalLink(
+        body.wedding_location_map_url
+      ),
+      wedding_route_image_urls: normalizeExternalLinks(
+        body.wedding_route_image_urls
+      ),
+      invitation_guest_field_order: normalizeInvitationGuestFieldOrder(
+        store.settings?.invitation_guest_field_order,
+        invitationFields
+      ),
       hero_message: body.hero_message || "",
+      hero_image_url: String(body.hero_image_url || "").trim(),
       guest_font_scale: guestFontScale
     };
     saveStore(store);
@@ -640,6 +918,67 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  if (req.method === "POST" && pathname === "/admin/invitation/images") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const dataUrl = body.dataUrl || "";
+    const filename = body.filename || "";
+    const match = String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      sendResponse(
+        res,
+        400,
+        JSON.stringify({ error: "无效的图片数据。" }),
+        "application/json"
+      );
+      return;
+    }
+    const mimeType = match[1];
+    if (!mimeType.startsWith("image/")) {
+      sendResponse(
+        res,
+        400,
+        JSON.stringify({ error: "仅支持上传图片文件。" }),
+        "application/json"
+      );
+      return;
+    }
+    const buffer = Buffer.from(match[2], "base64");
+    if (!buffer.length) {
+      sendResponse(
+        res,
+        400,
+        JSON.stringify({ error: "图片内容为空。" }),
+        "application/json"
+      );
+      return;
+    }
+    if (buffer.length > 10 * 1024 * 1024) {
+      sendResponse(
+        res,
+        400,
+        JSON.stringify({ error: "图片文件过大，请上传 10MB 以内文件。" }),
+        "application/json"
+      );
+      return;
+    }
+    ensureUploadDir();
+    const ext = getImageExtension(mimeType, filename);
+    const safeName = `invite-image-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}${ext}`;
+    const filePath = path.join(uploadDir, safeName);
+    fs.writeFileSync(filePath, buffer);
+    sendResponse(
+      res,
+      200,
+      JSON.stringify({ url: `/public/uploads/${safeName}` }),
+      "application/json"
+    );
+    return;
+  }
+
   if (req.method === "POST" && pathname === "/admin/invitation/sections") {
     const session = requireAdmin(req, res);
     if (!session) return;
@@ -648,10 +987,35 @@ const handleRequest = async (req, res) => {
     store.invitation_sections.push({
       id: nextId(store, "invitation_sections"),
       sort_order: Number(body.sort_order) || 0,
-      title: body.title || "",
-      body: body.body || "",
-      image_url: body.image_url || ""
+      title: String(body.title || "").trim(),
+      body: String(body.body || "").trim(),
+      image_url: String(body.image_url || "").trim()
     });
+    saveStore(store);
+    redirect(res, "/admin/invitation");
+    return;
+  }
+
+  const sectionUpdateMatch = pathname.match(
+    /^\/admin\/invitation\/sections\/(\d+)\/update$/
+  );
+  if (req.method === "POST" && sectionUpdateMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    const id = Number(sectionUpdateMatch[1]);
+    store.invitation_sections = (store.invitation_sections || []).map((section) =>
+      section.id === id
+        ? {
+            ...section,
+            sort_order: Number(body.sort_order) || 0,
+            title: String(body.title || "").trim(),
+            body: String(body.body || "").trim(),
+            image_url: String(body.image_url || "").trim()
+          }
+        : section
+    );
     saveStore(store);
     redirect(res, "/admin/invitation");
     return;
@@ -677,16 +1041,98 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const body = await parseBody(req);
-    if (body.label && body.field_key && body.field_type) {
+    const label = String(body.label || "").trim();
+    const fieldKey = String(body.field_key || "").trim();
+    const fieldType = normalizeInvitationFieldType(body.field_type);
+    const options = normalizeInvitationFieldOptions(fieldType, body.options);
+    if (label && fieldKey && fieldKey !== "attendees") {
       const store = loadStore();
       store.invitation_fields.push({
         id: nextId(store, "invitation_fields"),
-        label: body.label,
-        field_key: body.field_key,
-        field_type: body.field_type,
-        options: body.options || "",
+        label,
+        field_key: fieldKey,
+        field_type: fieldType,
+        options,
         required: Boolean(body.required)
       });
+      const invitationFields = getInvitationFields(store);
+      const nextOrderInput = [
+        ...(store.settings?.invitation_guest_field_order || []),
+        fieldKey
+      ];
+      store.settings = {
+        ...store.settings,
+        invitation_guest_field_order: normalizeInvitationGuestFieldOrder(
+          nextOrderInput,
+          invitationFields
+        )
+      };
+      saveStore(store);
+    }
+    redirect(res, "/admin/invitation");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/invitation/field-order") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    const invitationFields = getInvitationFields(store);
+    store.settings = {
+      ...store.settings,
+      invitation_guest_field_order: normalizeInvitationGuestFieldOrder(
+        body.order_keys,
+        invitationFields
+      )
+    };
+    saveStore(store);
+    redirect(res, "/admin/invitation");
+    return;
+  }
+
+  const fieldUpdateMatch = pathname.match(/^\/admin\/invitation\/fields\/(\d+)\/update$/);
+  if (req.method === "POST" && fieldUpdateMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const label = String(body.label || "").trim();
+    const fieldKey = String(body.field_key || "").trim();
+    const fieldType = normalizeInvitationFieldType(body.field_type);
+    const options = normalizeInvitationFieldOptions(fieldType, body.options);
+    const id = Number(fieldUpdateMatch[1]);
+    if (label && fieldKey && fieldKey !== "attendees") {
+      const store = loadStore();
+      const previousField = (store.invitation_fields || []).find(
+        (field) => field.id === id
+      );
+      store.invitation_fields = (store.invitation_fields || []).map((field) =>
+        field.id === id
+          ? {
+              ...field,
+              label,
+              field_key: fieldKey,
+              field_type: fieldType,
+              options,
+              required: Boolean(body.required)
+            }
+          : field
+      );
+      const invitationFields = getInvitationFields(store);
+      const currentOrder = store.settings?.invitation_guest_field_order || [];
+      const nextOrderInput =
+        previousField && previousField.field_key !== fieldKey
+          ? currentOrder.map((key) =>
+              key === previousField.field_key ? fieldKey : key
+            )
+          : currentOrder;
+      store.settings = {
+        ...store.settings,
+        invitation_guest_field_order: normalizeInvitationGuestFieldOrder(
+          nextOrderInput,
+          invitationFields
+        )
+      };
       saveStore(store);
     }
     redirect(res, "/admin/invitation");
@@ -704,6 +1150,14 @@ const handleRequest = async (req, res) => {
     store.invitation_fields = store.invitation_fields.filter(
       (field) => field.id !== id
     );
+    const invitationFields = getInvitationFields(store);
+    store.settings = {
+      ...store.settings,
+      invitation_guest_field_order: normalizeInvitationGuestFieldOrder(
+        store.settings?.invitation_guest_field_order,
+        invitationFields
+      )
+    };
     saveStore(store);
     redirect(res, "/admin/invitation");
     return;
@@ -713,6 +1167,7 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
+    const invitationFields = getInvitationFields(store);
     const error = url.searchParams.get("error");
     const errorGuestId = url.searchParams.get("error_guest");
     const guests = store.guests.map((guest) => ({
@@ -724,7 +1179,7 @@ const handleRequest = async (req, res) => {
       200,
       renderGuests({
         guests,
-        fields: store.invitation_fields,
+        fields: invitationFields,
         tables: sortTables(store.tables),
         error,
         errorGuestId
@@ -737,7 +1192,7 @@ const handleRequest = async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const store = loadStore();
-    const fields = store.invitation_fields || [];
+    const fields = getInvitationFields(store);
     const header = [
       "姓名",
       "手机号",
@@ -857,6 +1312,129 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  if (req.method === "POST" && pathname === "/admin/ledger/import") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const csvText = String(body.csv_text ?? body.csvText ?? "");
+    if (!csvText.trim()) {
+      sendResponse(
+        res,
+        400,
+        JSON.stringify({ error: "请先选择要导入的 CSV 文件。" }),
+        "application/json"
+      );
+      return;
+    }
+    if (Buffer.byteLength(csvText, "utf8") > 3 * 1024 * 1024) {
+      sendResponse(
+        res,
+        400,
+        JSON.stringify({ error: "导入文件过大，请控制在 3MB 以内。" }),
+        "application/json"
+      );
+      return;
+    }
+
+    const rows = parseCsvRows(csvText).filter((row) =>
+      row.some((cell) => String(cell || "").trim())
+    );
+    if (rows.length < 2) {
+      sendResponse(
+        res,
+        400,
+        JSON.stringify({ error: "未读取到有效数据，请上传包含表头与数据行的 CSV 文件。" }),
+        "application/json"
+      );
+      return;
+    }
+
+    const header = rows[0];
+    const indices = {
+      occurred_at: getImportHeaderIndex(header, ["日期", "发生日期"]),
+      direction: getImportHeaderIndex(header, ["收支", "收支类型"]),
+      category: getImportHeaderIndex(header, ["类型", "分类"]),
+      amount: getImportHeaderIndex(header, ["金额"]),
+      purpose: getImportHeaderIndex(header, ["具体用途", "用途"]),
+      payer: getImportHeaderIndex(header, ["付款人"]),
+      payee: getImportHeaderIndex(header, ["对象", "收款/支出对象"]),
+      method: getImportHeaderIndex(header, ["方式", "付款方式"]),
+      note: getImportHeaderIndex(header, ["备注"])
+    };
+
+    if (indices.amount < 0 || indices.purpose < 0 || indices.payer < 0) {
+      sendResponse(
+        res,
+        400,
+        JSON.stringify({
+          error:
+            "缺少必要列：金额、具体用途、付款人。请使用系统导出的模板后再导入。"
+        }),
+        "application/json"
+      );
+      return;
+    }
+
+    const readCell = (row, index) =>
+      index >= 0 ? String(row[index] || "").replace(/^\uFEFF/, "").trim() : "";
+
+    const store = loadStore();
+    store.ledger = store.ledger || [];
+    let inserted = 0;
+    let skipped = 0;
+    const errors = [];
+
+    rows.slice(1).forEach((row, rowIndex) => {
+      const lineNo = rowIndex + 2;
+      if (!row.some((cell) => String(cell || "").trim())) return;
+
+      const amount = parseLedgerAmount(readCell(row, indices.amount));
+      const purpose = readCell(row, indices.purpose);
+      const payer = readCell(row, indices.payer);
+      if (!amount || !purpose || !payer) {
+        skipped += 1;
+        errors.push(`第${lineNo}行缺少必要字段（金额/用途/付款人）。`);
+        return;
+      }
+
+      const direction = normalizeLedgerDirectionFromImport(
+        readCell(row, indices.direction)
+      );
+      const category = normalizeLedgerCategory(readCell(row, indices.category));
+      const occurredAt = normalizeLedgerDate(readCell(row, indices.occurred_at));
+      store.ledger.push({
+        id: nextId(store, "ledger"),
+        amount,
+        direction,
+        category,
+        purpose,
+        payer,
+        payee: readCell(row, indices.payee),
+        method: readCell(row, indices.method),
+        note: readCell(row, indices.note),
+        occurred_at: occurredAt,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+      inserted += 1;
+    });
+
+    if (inserted > 0) {
+      saveStore(store);
+    }
+    sendResponse(
+      res,
+      200,
+      JSON.stringify({
+        inserted,
+        skipped,
+        errors: errors.slice(0, 20)
+      }),
+      "application/json"
+    );
+    return;
+  }
+
   if (req.method === "POST" && pathname === "/admin/ledger") {
     const session = requireAdmin(req, res);
     if (!session) return;
@@ -946,15 +1524,13 @@ const handleRequest = async (req, res) => {
     if (!session) return;
     const body = await parseBody(req);
     const store = loadStore();
+    const invitationFields = getInvitationFields(store);
     const name = String(body.name || "").trim();
     const phone = String(body.phone || "").trim();
     const attendees = String(body.attendees || "").trim();
     const attending = parseAttendingValue(body.attending);
     const tableNo = getValidTableNo(body.table_no, store.tables);
-    const responses = {};
-    store.invitation_fields.forEach((field) => {
-      responses[field.field_key] = body[field.field_key] || "";
-    });
+    const responses = collectInvitationFieldResponses(invitationFields, body);
     responses.attendees = attendees;
     const missingFields = getMissingGuestFieldLabels(
       {
@@ -964,7 +1540,7 @@ const handleRequest = async (req, res) => {
         attending,
         responses
       },
-      store.invitation_fields
+      invitationFields
     );
     if (missingFields.length) {
       const message = encodeURIComponent(
@@ -1030,16 +1606,14 @@ const handleRequest = async (req, res) => {
     if (!session) return;
     const body = await parseBody(req);
     const store = loadStore();
+    const invitationFields = getInvitationFields(store);
     const id = Number(guestUpdateMatch[1]);
     const name = String(body.name || "").trim();
     const phone = String(body.phone || "").trim();
     const attendees = String(body.attendees || "").trim();
     const attending = parseAttendingValue(body.attending);
     const tableNo = getValidTableNo(body.table_no, store.tables);
-    const responses = {};
-    store.invitation_fields.forEach((field) => {
-      responses[field.field_key] = body[field.field_key] || "";
-    });
+    const responses = collectInvitationFieldResponses(invitationFields, body);
     responses.attendees = attendees;
     const missingFields = getMissingGuestFieldLabels(
       {
@@ -1049,7 +1623,7 @@ const handleRequest = async (req, res) => {
         attending,
         responses
       },
-      store.invitation_fields
+      invitationFields
     );
     if (missingFields.length) {
       const message = encodeURIComponent(
@@ -1436,6 +2010,7 @@ const handleRequest = async (req, res) => {
 
   if (req.method === "GET" && pathname === "/invite") {
     const store = loadStore();
+    const invitationFields = getInvitationFields(store);
     sendResponse(
       res,
       200,
@@ -1444,7 +2019,7 @@ const handleRequest = async (req, res) => {
         sections: store.invitation_sections.sort(
           (a, b) => a.sort_order - b.sort_order
         ),
-        fields: store.invitation_fields,
+        fields: invitationFields,
         submitted: url.searchParams.get("submitted")
       })
     );
@@ -1453,12 +2028,13 @@ const handleRequest = async (req, res) => {
 
   if (req.method === "GET" && pathname === "/checkin") {
     const store = loadStore();
+    const invitationFields = getInvitationFields(store);
     sendResponse(
       res,
       200,
       renderCheckin({
         settings: store.settings,
-        fields: store.invitation_fields,
+        fields: invitationFields,
         error: null,
         result: null,
         prompt: null,
@@ -1482,6 +2058,7 @@ const handleRequest = async (req, res) => {
       1
     );
     const store = loadStore();
+    const invitationFields = getInvitationFields(store);
     const formValues = {
       lookup: lookupInput,
       actual_attendees: String(actualAttendees),
@@ -1489,8 +2066,11 @@ const handleRequest = async (req, res) => {
       name: (body.name || "").trim(),
       phone: (body.phone || "").trim()
     };
-    store.invitation_fields.forEach((field) => {
-      formValues[field.field_key] = body[field.field_key] || "";
+    invitationFields.forEach((field) => {
+      formValues[field.field_key] = normalizeInvitationFieldResponse(
+        field,
+        body[field.field_key]
+      );
     });
     if (startNew) {
       sendResponse(
@@ -1498,7 +2078,7 @@ const handleRequest = async (req, res) => {
         200,
         renderCheckin({
           settings: store.settings,
-          fields: store.invitation_fields,
+          fields: invitationFields,
           error: null,
           result: null,
           prompt: null,
@@ -1515,7 +2095,7 @@ const handleRequest = async (req, res) => {
           200,
           renderCheckin({
             settings: store.settings,
-            fields: store.invitation_fields,
+            fields: invitationFields,
             error: "请填写姓名和手机号后再签到。",
             result: null,
             prompt: null,
@@ -1531,7 +2111,7 @@ const handleRequest = async (req, res) => {
           200,
           renderCheckin({
             settings: store.settings,
-            fields: store.invitation_fields,
+            fields: invitationFields,
             error: "请确认到场出席状态。",
             result: null,
             prompt: null,
@@ -1541,10 +2121,7 @@ const handleRequest = async (req, res) => {
         );
         return;
       }
-      const responses = {};
-      store.invitation_fields.forEach((field) => {
-        responses[field.field_key] = body[field.field_key] || "";
-      });
+      const responses = collectInvitationFieldResponses(invitationFields, body);
       responses.attendees = String(body.attendees || actualAttendees);
       const missingFields = getMissingGuestFieldLabels(
         {
@@ -1554,7 +2131,7 @@ const handleRequest = async (req, res) => {
           attending: true,
           responses
         },
-        store.invitation_fields
+        invitationFields
       );
       if (missingFields.length) {
         sendResponse(
@@ -1562,7 +2139,7 @@ const handleRequest = async (req, res) => {
           200,
           renderCheckin({
             settings: store.settings,
-            fields: store.invitation_fields,
+            fields: invitationFields,
             error: `请填写必填项：${missingFields.join("、")}。`,
             result: null,
             prompt: null,
@@ -1590,7 +2167,7 @@ const handleRequest = async (req, res) => {
         200,
         renderCheckin({
           settings: store.settings,
-          fields: store.invitation_fields,
+          fields: invitationFields,
           error: null,
           result: {
             name: guest.name,
@@ -1611,7 +2188,7 @@ const handleRequest = async (req, res) => {
         200,
         renderCheckin({
           settings: store.settings,
-          fields: store.invitation_fields,
+          fields: invitationFields,
           error: "请填写姓名或手机号后再签到。",
           result: null,
           prompt: null,
@@ -1627,7 +2204,7 @@ const handleRequest = async (req, res) => {
         200,
         renderCheckin({
           settings: store.settings,
-          fields: store.invitation_fields,
+          fields: invitationFields,
           error: "请确认到场出席状态。",
           result: null,
           prompt: null,
@@ -1660,7 +2237,7 @@ const handleRequest = async (req, res) => {
         200,
         renderCheckin({
           settings: store.settings,
-          fields: store.invitation_fields,
+          fields: invitationFields,
           error: null,
           result: null,
           prompt: { message },
@@ -1687,7 +2264,7 @@ const handleRequest = async (req, res) => {
       200,
       renderCheckin({
         settings: store.settings,
-        fields: store.invitation_fields,
+        fields: invitationFields,
         error: null,
         result: {
           name: guest.name,
@@ -1706,14 +2283,12 @@ const handleRequest = async (req, res) => {
   if (req.method === "POST" && pathname === "/invite/rsvp") {
     const body = await parseBody(req);
     const store = loadStore();
+    const invitationFields = getInvitationFields(store);
     const name = String(body.name || "").trim();
     const phone = String(body.phone || "").trim();
     const attendees = String(body.attendees || "").trim();
     const attending = parseAttendingValue(body.attending);
-    const responses = {};
-    store.invitation_fields.forEach((field) => {
-      responses[field.field_key] = body[field.field_key] || "";
-    });
+    const responses = collectInvitationFieldResponses(invitationFields, body);
     responses.attendees = attendees;
     const missingFields = getMissingGuestFieldLabels(
       {
@@ -1723,7 +2298,7 @@ const handleRequest = async (req, res) => {
         attending,
         responses
       },
-      store.invitation_fields
+      invitationFields
     );
     if (missingFields.length) {
       sendResponse(

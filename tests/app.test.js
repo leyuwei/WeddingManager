@@ -172,3 +172,581 @@ test("allows forcing new guest creation after check-in warning", async () => {
   assert.strictEqual(confirmResponse.status, 200);
   assert.ok(confirmText.includes("签到成功"));
 });
+
+test("supports date and checkbox custom fields with required validation", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const dateFieldResponse = await fetch(`${baseUrl}/admin/invitation/fields`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      label: "到达日期",
+      field_key: "arrival_date_test",
+      field_type: "date",
+      required: "on"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(dateFieldResponse.status, 302);
+
+  const checkboxFieldResponse = await fetch(
+    `${baseUrl}/admin/invitation/fields`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        cookie
+      },
+      body: new URLSearchParams({
+        label: "交通方式",
+        field_key: "transport_test",
+        field_type: "checkbox",
+        options: "自驾,高铁",
+        required: "on"
+      }),
+      redirect: "manual"
+    }
+  );
+  assert.strictEqual(checkboxFieldResponse.status, 302);
+
+  const missingCheckboxResponse = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "字段校验来宾",
+      phone: "13900009990",
+      attending: "yes",
+      attendees: "1",
+      arrival_date_test: "2026-05-20"
+    }),
+    redirect: "manual"
+  });
+  const missingCheckboxText = await missingCheckboxResponse.text();
+  assert.strictEqual(missingCheckboxResponse.status, 400);
+  assert.ok(missingCheckboxText.includes("交通方式"));
+
+  const rsvpResponse = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "日期复选框来宾",
+      phone: "13900009991",
+      attending: "yes",
+      attendees: "2",
+      arrival_date_test: "2026-05-21",
+      transport_test: "高铁"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(rsvpResponse.status, 302);
+
+  const exportResponse = await fetch(`${baseUrl}/admin/guests/export`, {
+    headers: { cookie }
+  });
+  const exportText = await exportResponse.text();
+  assert.strictEqual(exportResponse.status, 200);
+  assert.ok(exportText.includes("2026-05-21"));
+  assert.ok(exportText.includes("高铁"));
+});
+
+test("supports editing invitation custom fields", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const createFieldResponse = await fetch(`${baseUrl}/admin/invitation/fields`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      label: "餐食偏好原始",
+      field_key: "meal_pref_edit_test",
+      field_type: "text"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(createFieldResponse.status, 302);
+
+  const invitationBeforeResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const invitationBeforeText = await invitationBeforeResponse.text();
+  assert.strictEqual(invitationBeforeResponse.status, 200);
+
+  const fieldIdMatch = invitationBeforeText.match(
+    /action="\/admin\/invitation\/fields\/(\d+)\/update"[\s\S]*?name="field_key" value="meal_pref_edit_test"/
+  );
+  assert.ok(fieldIdMatch);
+  const fieldId = fieldIdMatch[1];
+
+  const updateFieldResponse = await fetch(
+    `${baseUrl}/admin/invitation/fields/${fieldId}/update`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        cookie
+      },
+      body: new URLSearchParams({
+        label: "餐食偏好更新",
+        field_key: "meal_pref_updated_test",
+        field_type: "radio",
+        options: "鸡肉,牛肉,素食"
+      }),
+      redirect: "manual"
+    }
+  );
+  assert.strictEqual(updateFieldResponse.status, 302);
+
+  const invitationAfterResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const invitationAfterText = await invitationAfterResponse.text();
+  assert.strictEqual(invitationAfterResponse.status, 200);
+  assert.ok(
+    invitationAfterText.includes(
+      `action="/admin/invitation/fields/${fieldId}/update"`
+    )
+  );
+  assert.ok(invitationAfterText.includes('name="label" value="餐食偏好更新"'));
+  assert.ok(
+    invitationAfterText.includes(
+      'name="field_key" value="meal_pref_updated_test"'
+    )
+  );
+  assert.ok(invitationAfterText.includes("name=\"options\" value=\"鸡肉,牛肉,素食\""));
+  assert.ok(invitationAfterText.includes('<option value="radio" selected>单选</option>'));
+});
+
+test("supports required radio custom field validation", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const radioFieldResponse = await fetch(`${baseUrl}/admin/invitation/fields`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      label: "到场时段",
+      field_key: "arrival_slot_radio_test",
+      field_type: "radio",
+      options: "上午场,下午场",
+      required: "on"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(radioFieldResponse.status, 302);
+
+  const missingRadioResponse = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "单选缺失来宾",
+      phone: "13900009992",
+      attending: "yes",
+      attendees: "1",
+      arrival_date_test: "2026-05-22",
+      transport_test: "自驾"
+    }),
+    redirect: "manual"
+  });
+  const missingRadioText = await missingRadioResponse.text();
+  assert.strictEqual(missingRadioResponse.status, 400);
+  assert.ok(missingRadioText.includes("到场时段"));
+
+  const invalidRadioResponse = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "单选非法来宾",
+      phone: "13900009993",
+      attending: "yes",
+      attendees: "1",
+      arrival_date_test: "2026-05-22",
+      transport_test: "自驾",
+      arrival_slot_radio_test: "夜场"
+    }),
+    redirect: "manual"
+  });
+  const invalidRadioText = await invalidRadioResponse.text();
+  assert.strictEqual(invalidRadioResponse.status, 400);
+  assert.ok(invalidRadioText.includes("到场时段"));
+
+  const validRadioResponse = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "单选通过来宾",
+      phone: "13900009994",
+      attending: "yes",
+      attendees: "2",
+      arrival_date_test: "2026-05-23",
+      transport_test: "高铁",
+      arrival_slot_radio_test: "上午场"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(validRadioResponse.status, 302);
+
+  const exportResponse = await fetch(`${baseUrl}/admin/guests/export`, {
+    headers: { cookie }
+  });
+  const exportText = await exportResponse.text();
+  assert.strictEqual(exportResponse.status, 200);
+  assert.ok(exportText.includes("上午场"));
+});
+
+test("supports reordering invitation guest fields including built-in fields", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const createFieldResponse = await fetch(`${baseUrl}/admin/invitation/fields`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      label: "最喜欢的歌曲",
+      field_key: "favorite_song_order_test",
+      field_type: "text"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(createFieldResponse.status, 302);
+
+  const orderKeys = [
+    "attending",
+    "favorite_song_order_test",
+    "name",
+    "phone",
+    "attendees"
+  ].join(",");
+  const reorderResponse = await fetch(`${baseUrl}/admin/invitation/field-order`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      order_keys: orderKeys
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(reorderResponse.status, 302);
+
+  const adminInvitationResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const adminInvitationText = await adminInvitationResponse.text();
+  assert.strictEqual(adminInvitationResponse.status, 200);
+  const orderValueMatch = adminInvitationText.match(
+    /name="order_keys"\s+id="fieldOrderKeys"\s+value="([^"]+)"/
+  );
+  assert.ok(orderValueMatch);
+  const savedOrderKeys = orderValueMatch[1];
+  assert.ok(
+    savedOrderKeys === orderKeys || savedOrderKeys.startsWith(`${orderKeys},`)
+  );
+
+  const inviteResponse = await fetch(`${baseUrl}/invite`);
+  const inviteText = await inviteResponse.text();
+  assert.strictEqual(inviteResponse.status, 200);
+  const attendingIndex = inviteText.indexOf('name="attending"');
+  const customIndex = inviteText.indexOf('name="favorite_song_order_test"');
+  const nameIndex = inviteText.indexOf('name="name"');
+  const phoneIndex = inviteText.indexOf('name="phone"');
+  const attendeesIndex = inviteText.indexOf('name="attendees"');
+  assert.ok(attendingIndex >= 0);
+  assert.ok(customIndex >= 0);
+  assert.ok(nameIndex >= 0);
+  assert.ok(phoneIndex >= 0);
+  assert.ok(attendeesIndex >= 0);
+  assert.ok(attendingIndex < customIndex);
+  assert.ok(customIndex < nameIndex);
+  assert.ok(nameIndex < phoneIndex);
+  assert.ok(phoneIndex < attendeesIndex);
+});
+
+test("keeps admin invitation inline script syntactically valid", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const invitationResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const invitationText = await invitationResponse.text();
+  assert.strictEqual(invitationResponse.status, 200);
+
+  const scriptMatch = invitationText.match(
+    /<script>\s*([\s\S]*?)\s*<\/script>/
+  );
+  assert.ok(scriptMatch);
+  assert.doesNotThrow(() => new Function(scriptMatch[1]));
+  assert.doesNotMatch(
+    scriptMatch[1],
+    /join\("\s*[\r\n]+\s*"\)/
+  );
+  assert.ok(invitationText.includes('id="fieldOrderList"'));
+  assert.ok(invitationText.includes('data-order-item draggable="true"'));
+  assert.ok(invitationText.includes('data-order-move="-1"'));
+});
+
+test("allows editing invitation sections", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const updateResponse = await fetch(
+    `${baseUrl}/admin/invitation/sections/1/update`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        cookie
+      },
+      body: new URLSearchParams({
+        sort_order: "9",
+        title: "分屏编辑测试标题",
+        body: "分屏编辑测试文案",
+        image_url: "https://example.com/image-edit-test.jpg"
+      }),
+      redirect: "manual"
+    }
+  );
+  assert.strictEqual(updateResponse.status, 302);
+
+  const invitationResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const invitationText = await invitationResponse.text();
+  assert.strictEqual(invitationResponse.status, 200);
+  assert.ok(invitationText.includes("分屏编辑测试标题"));
+  assert.ok(invitationText.includes("分屏编辑测试文案"));
+});
+
+test("supports ledger csv import", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const csvText = [
+    "日期,收支,类型,金额,具体用途,付款人,对象,方式,备注",
+    "2026-06-01,支出,场地租用,1200,测试导入场地费,张三,酒店,转账,第一条",
+    "2026-06-02,收入,礼金红包,5200,测试导入礼金,李四,亲友,微信,第二条",
+    "2026-06-03,支出,婚礼仪式,,缺少金额会跳过,王五,策划公司,现金,第三条"
+  ].join("\n");
+
+  const importResponse = await fetch(`${baseUrl}/admin/ledger/import`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      cookie
+    },
+    body: JSON.stringify({
+      csv_text: csvText,
+      filename: "ledger-import-test.csv"
+    })
+  });
+  const importResult = await importResponse.json();
+  assert.strictEqual(importResponse.status, 200);
+  assert.strictEqual(importResult.inserted, 2);
+  assert.strictEqual(importResult.skipped, 1);
+
+  const exportResponse = await fetch(`${baseUrl}/admin/ledger/export`, {
+    headers: { cookie }
+  });
+  const exportText = await exportResponse.text();
+  assert.strictEqual(exportResponse.status, 200);
+  assert.ok(exportText.includes("测试导入场地费"));
+  assert.ok(exportText.includes("测试导入礼金"));
+});
+
+test("supports uploading invitation background images", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const imageDataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7+X9kAAAAASUVORK5CYII=";
+  const uploadResponse = await fetch(`${baseUrl}/admin/invitation/images`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      cookie
+    },
+    body: JSON.stringify({
+      dataUrl: imageDataUrl,
+      filename: "hero-test.png"
+    })
+  });
+  const uploadResult = await uploadResponse.json();
+  assert.strictEqual(uploadResponse.status, 200);
+  assert.ok(uploadResult.url.startsWith("/public/uploads/invite-image-"));
+
+  const imageResponse = await fetch(`${baseUrl}${uploadResult.url}`);
+  assert.strictEqual(imageResponse.status, 200);
+  assert.ok((imageResponse.headers.get("content-type") || "").includes("image/"));
+
+  const settingsResponse = await fetch(`${baseUrl}/admin/invitation/settings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      couple_name: "上传测试新人",
+      wedding_date: "2026年6月6日 18:00",
+      wedding_location: "测试地点",
+      hero_message: "测试文案",
+      hero_image_url: uploadResult.url,
+      guest_font_scale: "1.1"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(settingsResponse.status, 302);
+
+  const inviteResponse = await fetch(`${baseUrl}/invite`);
+  const inviteText = await inviteResponse.text();
+  assert.strictEqual(inviteResponse.status, 200);
+  assert.ok(inviteText.includes(uploadResult.url));
+});
+
+test("supports wedding location map links with multi-map chooser", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const location = "上海市浦东新区花园路88号";
+  const customMapUrl = "https://example.com/custom-map-link";
+  const routeImageOne = "https://example.com/route-1.jpg";
+  const routeImageTwo = "https://example.com/route-2.jpg";
+  const settingsResponse = await fetch(`${baseUrl}/admin/invitation/settings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      couple_name: "地图功能测试",
+      wedding_date: "2026年6月8日 18:00",
+      wedding_location: location,
+      wedding_location_map_url: customMapUrl,
+      wedding_route_image_urls: `${routeImageOne}\n${routeImageTwo}`,
+      hero_message: "测试地图选择器",
+      guest_font_scale: "1.1"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(settingsResponse.status, 302);
+
+  const inviteResponse = await fetch(`${baseUrl}/invite`);
+  const inviteText = await inviteResponse.text();
+  assert.strictEqual(inviteResponse.status, 200);
+
+  const encodedLocation = encodeURIComponent(location);
+  assert.ok(inviteText.includes('data-map-chooser-open="true"'));
+  assert.ok(inviteText.includes('id="inviteMapChooser"'));
+  assert.ok(inviteText.includes("Google Maps"));
+  assert.ok(inviteText.includes("高德地图"));
+  assert.ok(inviteText.includes("百度地图"));
+  assert.ok(inviteText.includes(customMapUrl));
+  assert.ok(inviteText.includes(routeImageOne));
+  assert.ok(inviteText.includes(routeImageTwo));
+  assert.ok(inviteText.includes("map-route-gallery"));
+  assert.ok(
+    inviteText.includes(
+      `https://www.google.com/maps/search/?api=1&amp;query=${encodedLocation}`
+    )
+  );
+  assert.ok(
+    inviteText.includes(
+      `https://uri.amap.com/search?keyword=${encodedLocation}&amp;src=weddingmanager&amp;callnative=1`
+    )
+  );
+  assert.ok(
+    inviteText.includes(`https://map.baidu.com/search/${encodedLocation}/`)
+  );
+
+  const rsvpResponse = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "地图导航保存来宾",
+      phone: "13900009995",
+      attending: "yes",
+      attendees: "1",
+      arrival_date_test: "2026-06-08",
+      transport_test: "高铁",
+      arrival_slot_radio_test: "上午场",
+      favorite_song_order_test: "告白气球"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(rsvpResponse.status, 302);
+  assert.strictEqual(rsvpResponse.headers.get("location"), "/invite?submitted=1");
+
+  const submittedInviteResponse = await fetch(`${baseUrl}/invite?submitted=1`);
+  const submittedInviteText = await submittedInviteResponse.text();
+  assert.strictEqual(submittedInviteResponse.status, 200);
+  assert.ok(submittedInviteText.includes("查看地图导航"));
+  assert.ok(submittedInviteText.includes('id="inviteMapChooser"'));
+  assert.ok(submittedInviteText.includes(routeImageOne));
+});

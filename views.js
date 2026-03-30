@@ -23,6 +23,96 @@ const clampNumber = (value, min, max, fallback) => {
   return Math.min(max, Math.max(min, parsed));
 };
 
+const getCoupleNameLines = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return ["", ""];
+
+  const lineParts = normalized
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (lineParts.length >= 2) {
+    return [lineParts[0], lineParts[1]];
+  }
+
+  const separators = [
+    /\s+and\s+/i,
+    /\s*&\s*/,
+    /\s*＆\s*/,
+    /\s*和\s*/,
+    /\s*与\s*/,
+    /\s*\+\s*/,
+    /\s*\/\s*/,
+    /\s*\|\s*/,
+    /\s*｜\s*/,
+    /\s*,\s*/,
+    /\s*，\s*/,
+    /\s*、\s*/
+  ];
+
+  for (const separator of separators) {
+    const parts = normalized
+      .split(separator)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      return [parts[0], parts.slice(1).join(" ")];
+    }
+  }
+
+  return [normalized, ""];
+};
+
+const normalizeMapLinkUrl = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (/^(javascript|data|vbscript):/i.test(normalized)) return "";
+  return normalized;
+};
+
+const getWeddingRouteImageUrls = (settings = {}) => {
+  const rawValue = settings?.wedding_route_image_urls;
+  const values = Array.isArray(rawValue)
+    ? rawValue
+    : String(rawValue || "")
+        .split(/\r?\n|,/)
+        .map((item) => item.trim());
+  return [...new Set(values.map((item) => normalizeMapLinkUrl(item)).filter(Boolean))];
+};
+
+const buildInviteMapLinks = (settings = {}) => {
+  const location = String(settings?.wedding_location || "").trim();
+  const customMapUrl = normalizeMapLinkUrl(settings?.wedding_location_map_url);
+  const links = [];
+
+  if (customMapUrl) {
+    links.push({
+      label: "自定义地图链接",
+      url: customMapUrl
+    });
+  }
+
+  if (!location) return links;
+
+  const query = encodeURIComponent(location);
+  links.push(
+    {
+      label: "Google Maps",
+      url: `https://www.google.com/maps/search/?api=1&query=${query}`
+    },
+    {
+      label: "高德地图",
+      url: `https://uri.amap.com/search?keyword=${query}&src=weddingmanager&callnative=1`
+    },
+    {
+      label: "百度地图",
+      url: `https://map.baidu.com/search/${query}/`
+    }
+  );
+
+  return links;
+};
+
 const renderAttendeeInput = ({
   name,
   value,
@@ -264,6 +354,256 @@ const renderAttendingSelect = ({ name, value, required = false, form }) => {
         <option value="yes" ${isAttending ? "selected" : ""}>出席</option>
         <option value="no" ${!isAttending ? "selected" : ""}>不出席</option>
       </select>`;
+};
+
+const customFieldTypeLabels = {
+  text: "文本",
+  textarea: "多行文本",
+  select: "下拉选择",
+  date: "日期",
+  checkbox: "复选框",
+  radio: "单选"
+};
+
+const builtInGuestFields = [
+  {
+    field_key: "name",
+    label: "姓名",
+    field_type: "text",
+    required: true,
+    is_builtin: true
+  },
+  {
+    field_key: "phone",
+    label: "手机号",
+    field_type: "text",
+    required: true,
+    is_builtin: true
+  },
+  {
+    field_key: "attendees",
+    label: "出席人数",
+    field_type: "select",
+    required: true,
+    is_builtin: true
+  },
+  {
+    field_key: "attending",
+    label: "出席情况",
+    field_type: "select",
+    required: true,
+    is_builtin: true
+  }
+];
+
+const builtInGuestFieldKeys = builtInGuestFields.map((field) => field.field_key);
+
+const normalizeGuestFieldOrder = ({ settings, fields }) => {
+  const customKeys = (fields || [])
+    .map((field) => String(field.field_key || "").trim())
+    .filter(Boolean);
+  const allowed = new Set([...builtInGuestFieldKeys, ...customKeys]);
+  const rawOrder = Array.isArray(settings?.invitation_guest_field_order)
+    ? settings.invitation_guest_field_order
+    : String(settings?.invitation_guest_field_order || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+  const ordered = [];
+  rawOrder.forEach((key) => {
+    if (!allowed.has(key)) return;
+    if (ordered.includes(key)) return;
+    ordered.push(key);
+  });
+  [...builtInGuestFieldKeys, ...customKeys].forEach((key) => {
+    if (ordered.includes(key)) return;
+    ordered.push(key);
+  });
+  return ordered;
+};
+
+const getOrderedGuestCollectionFields = ({ settings, fields }) => {
+  const orderKeys = normalizeGuestFieldOrder({ settings, fields });
+  const builtInMap = new Map(
+    builtInGuestFields.map((field) => [field.field_key, { ...field }])
+  );
+  const customMap = new Map(
+    (fields || []).map((field) => [field.field_key, { ...field, is_builtin: false }])
+  );
+  return orderKeys
+    .map((key) => builtInMap.get(key) || customMap.get(key))
+    .filter(Boolean);
+};
+
+const getFieldTypeLabel = (field) => {
+  if (field?.is_builtin) {
+    if (field.field_key === "attendees") return "内置选择";
+    if (field.field_key === "attending") return "内置选择";
+    return "内置文本";
+  }
+  return getCustomFieldTypeLabel(field);
+};
+
+const normalizeCustomFieldType = (field) => {
+  const rawType = String(field?.field_type || "")
+    .trim()
+    .toLowerCase();
+  return customFieldTypeLabels[rawType] ? rawType : "text";
+};
+
+const getCustomFieldTypeLabel = (field) =>
+  customFieldTypeLabels[normalizeCustomFieldType(field)] || "文本";
+
+const getCustomFieldOptions = (field) =>
+  String(field?.options || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const normalizeCheckboxValues = (value) => {
+  const rawValues = Array.isArray(value) ? value : [value];
+  return [...new Set(
+    rawValues
+      .flatMap((item) => String(item || "").split(","))
+      .map((item) => item.trim())
+      .filter(Boolean)
+  )];
+};
+
+const isSingleCheckboxChecked = (values) =>
+  (values || []).some((item) =>
+    ["1", "true", "yes", "on"].includes(String(item).toLowerCase())
+  );
+
+const renderCustomFieldControl = ({ field, value = "", form }) => {
+  const fieldType = normalizeCustomFieldType(field);
+  const fieldName = escapeHtml(field.field_key || "");
+  const requiredAttr = field.required ? "required" : "";
+  const formAttr = form ? `form="${escapeHtml(form)}"` : "";
+  const valueText = Array.isArray(value) ? value.join(",") : String(value || "");
+
+  if (fieldType === "textarea") {
+    return `<textarea name="${fieldName}" rows="2" ${formAttr} ${requiredAttr}>${escapeHtml(
+      valueText
+    )}</textarea>`;
+  }
+
+  if (fieldType === "select") {
+    const options = getCustomFieldOptions(field)
+      .map((option) => {
+        const escaped = escapeHtml(option);
+        const selected = option === valueText ? "selected" : "";
+        return `<option value="${escaped}" ${selected}>${escaped}</option>`;
+      })
+      .join("");
+    return `<select name="${fieldName}" ${formAttr} ${requiredAttr}>
+      <option value="">请选择</option>
+      ${options}
+    </select>`;
+  }
+
+  if (fieldType === "date") {
+    return `<input type="date" name="${fieldName}" value="${escapeHtml(
+      valueText
+    )}" ${formAttr} ${requiredAttr} />`;
+  }
+
+  if (fieldType === "radio") {
+    const options = getCustomFieldOptions(field);
+    const selectedValue = Array.isArray(value)
+      ? String(value[value.length - 1] || "").trim()
+      : valueText;
+    if (!options.length) {
+      return `<p class="muted">请先配置单选项。</p>`;
+    }
+    return `<div class="radio-group">
+      ${options
+        .map((option) => {
+          const escaped = escapeHtml(option);
+          const checked = option === selectedValue ? "checked" : "";
+          return `<label class="radio-option">
+            <input type="radio" name="${fieldName}" value="${escaped}" ${formAttr} ${requiredAttr} ${checked} />
+            <span>${escaped}</span>
+          </label>`;
+        })
+        .join("")}
+    </div>`;
+  }
+
+  if (fieldType === "checkbox") {
+    const options = getCustomFieldOptions(field);
+    const selectedValues = normalizeCheckboxValues(value);
+    if (!options.length) {
+      return `<label class="checkbox-option checkbox-single">
+        <input type="checkbox" name="${fieldName}" value="1" ${formAttr} ${
+        isSingleCheckboxChecked(selectedValues) ? "checked" : ""
+      } />
+        <span>已确认</span>
+      </label>`;
+    }
+    return `<div class="checkbox-group">
+      ${options
+        .map((option) => {
+          const escaped = escapeHtml(option);
+          const checked = selectedValues.includes(option) ? "checked" : "";
+          return `<label class="checkbox-option">
+            <input type="checkbox" name="${fieldName}" value="${escaped}" ${formAttr} ${checked} />
+            <span>${escaped}</span>
+          </label>`;
+        })
+        .join("")}
+    </div>`;
+  }
+
+  return `<input type="text" name="${fieldName}" value="${escapeHtml(
+    valueText
+  )}" ${formAttr} ${requiredAttr} />`;
+};
+
+const renderCustomFieldInput = ({ field, value = "", form, fullWidth = false }) => {
+  const fieldType = normalizeCustomFieldType(field);
+  const classes = [];
+  if (fullWidth) classes.push("full");
+  if (["checkbox", "radio"].includes(fieldType)) classes.push("checkbox-field");
+  const classAttr = classes.length ? ` class="${classes.join(" ")}"` : "";
+  if (["checkbox", "radio"].includes(fieldType)) {
+    return `<div${classAttr}>
+    <div class="field-label-line">
+      <span>${escapeHtml(field.label || "")}</span>
+      ${field.required ? `<span class="required-badge">必填</span>` : ""}
+    </div>
+    ${renderCustomFieldControl({ field, value, form })}
+  </div>`;
+  }
+  return `<label${classAttr}>
+    <span class="field-label-line">
+      <span>${escapeHtml(field.label || "")}</span>
+      ${field.required ? `<span class="required-badge">必填</span>` : ""}
+    </span>
+    ${renderCustomFieldControl({ field, value, form })}
+  </label>`;
+};
+
+const formatCustomFieldValue = (field, value) => {
+  const fieldType = normalizeCustomFieldType(field);
+  if (fieldType === "checkbox") {
+    const options = getCustomFieldOptions(field);
+    const selectedValues = normalizeCheckboxValues(value);
+    if (!selectedValues.length) return "";
+    if (!options.length) {
+      return isSingleCheckboxChecked(selectedValues) ? "已勾选" : "";
+    }
+    const optionSet = new Set(options);
+    const selected = selectedValues.filter((item) => optionSet.has(item));
+    return selected.join("、");
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .join("、");
+  }
+  return String(value || "").trim();
 };
 
 const getAttendeeLabel = (guest) => {
@@ -570,8 +910,120 @@ ${success ? `<div class="alert" style="background:#e9f7ef;color:#2f8f5f;">${esca
 `
   );
 
-const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
-  adminLayout(
+const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
+  const orderedGuestFields = getOrderedGuestCollectionFields({ settings, fields });
+  const routeImageUrls = getWeddingRouteImageUrls(settings);
+  const orderedFieldKeysValue = orderedGuestFields
+    .map((field) => field.field_key)
+    .join(",");
+  const orderedFieldOrderItemsHtml = orderedGuestFields
+    .map((field) => {
+      const key = escapeHtml(field.field_key || "");
+      const label = escapeHtml(field.label || field.field_key || "");
+      const typeLabel = escapeHtml(getFieldTypeLabel(field));
+      const tag = field.is_builtin
+        ? `<span class="tag">内置</span>`
+        : `<span class="tag muted-tag">自定义</span>`;
+      const requiredBadge = field.required
+        ? `<span class="required-badge">必填</span>`
+        : "";
+      return `<div class="field-order-item" data-order-item draggable="true" data-field-key="${key}">
+        <span class="field-order-handle" aria-hidden="true">☰</span>
+        <div class="field-order-info">
+          <div class="field-order-title">
+            <strong>${label}</strong>
+            ${tag}
+            ${requiredBadge}
+          </div>
+          <div class="muted">key: ${key} ｜ 类型：${typeLabel}</div>
+        </div>
+        <div class="field-order-actions">
+          <button class="btn ghost small" type="button" data-order-move="-1">上移</button>
+          <button class="btn ghost small" type="button" data-order-move="1">下移</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+  const routeImagePreviewHtml = routeImageUrls.length
+    ? `<div class="full route-image-grid">
+        ${routeImageUrls
+          .map(
+            (url) => `<a href="${escapeHtml(
+              url
+            )}" target="_blank" rel="noopener noreferrer">
+                  <img src="${escapeHtml(url)}" alt="路线图" loading="lazy" />
+                </a>`
+          )
+          .join("")}
+      </div>`
+    : `<p class="muted full">尚未配置实景路线图。</p>`;
+  const invitationFieldItemsHtml = fields
+    .map((field) => {
+      const options = getCustomFieldOptions(field);
+      const fieldType = normalizeCustomFieldType(field);
+      const needOptions = ["select", "checkbox", "radio"].includes(fieldType);
+      const requiredId = `invitationFieldRequired-${field.id}`;
+      return `
+    <div class="list-item invitation-field-item">
+      <div class="section-editor-head">
+        <div class="invitation-field-title">
+          <strong>${escapeHtml(field.label)}</strong>
+          ${field.required ? `<span class="required-badge">必填</span>` : `<span class="muted">选填</span>`}
+        </div>
+        <span class="muted">字段 #${escapeHtml(field.id)} ｜ 当前类型：${escapeHtml(
+        getCustomFieldTypeLabel(field)
+      )}</span>
+      </div>
+      <form method="post" action="/admin/invitation/fields/${field.id}/update" class="form-grid invitation-field-form invitation-field-edit-form" data-field-config-form>
+        <label>
+          字段名称
+          <input type="text" name="label" value="${escapeHtml(field.label)}" required />
+        </label>
+        <label>
+          字段标识
+          <input type="text" name="field_key" value="${escapeHtml(
+            field.field_key
+          )}" required />
+        </label>
+        <label>
+          类型
+          <select name="field_type" required data-field-type-select>
+            <option value="text" ${fieldType === "text" ? "selected" : ""}>文本</option>
+            <option value="textarea" ${fieldType === "textarea" ? "selected" : ""}>多行文本</option>
+            <option value="select" ${fieldType === "select" ? "selected" : ""}>下拉选择</option>
+            <option value="date" ${fieldType === "date" ? "selected" : ""}>日期</option>
+            <option value="checkbox" ${fieldType === "checkbox" ? "selected" : ""}>复选框</option>
+            <option value="radio" ${fieldType === "radio" ? "selected" : ""}>单选</option>
+          </select>
+        </label>
+        <label data-options-wrap class="${needOptions ? "" : "is-disabled"}">
+          选项（逗号分隔）
+          <input type="text" name="options" value="${escapeHtml(
+            options.join(",")
+          )}" placeholder="下拉选择、单选或复选框使用，如：素食,不吃辣,海鲜过敏" ${
+        needOptions ? "" : "disabled"
+      } />
+        </label>
+        <div class="field-required-wrap">
+          <label class="required-switch" for="${escapeHtml(requiredId)}">
+            <span>设为必填</span>
+            <input type="checkbox" id="${escapeHtml(requiredId)}" name="required" ${
+        field.required ? "checked" : ""
+      } />
+          </label>
+          <p class="muted">开启后，来宾提交时必须填写该项。</p>
+        </div>
+        <div class="section-editor-actions full invitation-field-actions">
+          <button class="btn primary" type="submit">保存修改</button>
+        </div>
+      </form>
+      <form method="post" action="/admin/invitation/fields/${field.id}/delete" class="inline-form section-editor-delete">
+        <button class="btn ghost" type="submit" onclick="return confirm('确认删除该字段吗？');">删除</button>
+      </form>
+    </div>`;
+    })
+    .join("");
+  return adminLayout(
     "请柬设计",
     `
 <section class="card">
@@ -625,11 +1077,57 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
       )}" />
     </label>
     <label class="full">
+      婚礼地点地图超链接（可选）
+      <input type="url" name="wedding_location_map_url" value="${escapeHtml(
+        settings.wedding_location_map_url || ""
+      )}" placeholder="如 https://maps.google.com/?q=海滨花园宴会厅" />
+    </label>
+    <p class="muted full">前台点击“地图导航”后会弹出地图应用选择（Google Maps / 高德地图 / 百度地图），并附带此自定义链接。</p>
+    <label class="full">
+      地图导航实景路线图（每行一个 URL）
+      <textarea id="weddingRouteImageUrls" name="wedding_route_image_urls" rows="3" placeholder="如：https://example.com/route-1.jpg">${escapeHtml(
+        routeImageUrls.join("\n")
+      )}</textarea>
+    </label>
+    <div
+      class="full image-upload-box"
+      data-image-upload-box
+      data-target-input="weddingRouteImageUrls"
+      data-target-mode="append-lines"
+      data-upload-multiple="true"
+    >
+      <label>
+        上传实景路线图（可多选）
+        <input type="file" accept="image/*" multiple data-image-upload-file />
+      </label>
+      <div class="inline-actions">
+        <button class="btn ghost" type="button" data-image-upload-button>上传并追加到列表</button>
+        <span class="muted" data-image-upload-status>可上传多张，提交设置后会展示在来宾地图弹窗中。</span>
+      </div>
+    </div>
+    ${routeImagePreviewHtml}
+    <label class="full">
       头图文案
       <input type="text" name="hero_message" value="${escapeHtml(
         settings.hero_message || ""
       )}" />
     </label>
+    <label class="full">
+      头图背景图 URL
+      <input type="text" id="inviteHeroImageUrl" name="hero_image_url" value="${escapeHtml(
+        settings.hero_image_url || ""
+      )}" />
+    </label>
+    <div class="full image-upload-box" data-image-upload-box data-target-input="inviteHeroImageUrl">
+      <label>
+        上传头图背景图
+        <input type="file" accept="image/*" data-image-upload-file />
+      </label>
+      <div class="inline-actions">
+        <button class="btn ghost" type="button" data-image-upload-button>上传并填入 URL</button>
+        <span class="muted" data-image-upload-status>支持 JPG/PNG/WebP/GIF，建议横图。</span>
+      </div>
+    </div>
     <label>
       来宾页面字号放大倍数
       <input type="number" name="guest_font_scale" min="1" max="2.5" step="0.1" value="${escapeHtml(
@@ -691,22 +1189,74 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
     </label>
     <label class="full">
       图片 URL
-      <input type="text" name="image_url" />
+      <input type="text" id="sectionImageUrlNew" name="image_url" />
     </label>
+    <div class="full image-upload-box" data-image-upload-box data-target-input="sectionImageUrlNew">
+      <label>
+        上传分屏背景图
+        <input type="file" accept="image/*" data-image-upload-file />
+      </label>
+      <div class="inline-actions">
+        <button class="btn ghost" type="button" data-image-upload-button>上传并填入 URL</button>
+        <span class="muted" data-image-upload-status>上传后将自动填入上方“图片 URL”。</span>
+      </div>
+    </div>
     <button class="btn primary" type="submit">新增分屏</button>
   </form>
-  <div class="list">
+  <div class="list invitation-section-list">
     ${sections
       .map(
         (section) => `
-    <div class="list-item">
-      <div>
-        <strong>${escapeHtml(section.title)}</strong>
-        <p>${escapeHtml(section.body)}</p>
-        <small>排序：${section.sort_order}</small>
+    <div class="list-item invitation-section-item">
+      <div class="section-editor-head">
+        <strong>分屏 #${escapeHtml(section.id)}</strong>
+        <span class="muted">当前排序：${escapeHtml(section.sort_order)}</span>
       </div>
-      <form method="post" action="/admin/invitation/sections/${section.id}/delete">
-        <button class="btn ghost" type="submit">删除</button>
+      <form method="post" action="/admin/invitation/sections/${section.id}/update" class="form-grid section-editor-form">
+        <label>
+          排序
+          <input type="number" name="sort_order" value="${escapeHtml(
+            section.sort_order
+          )}" />
+        </label>
+        <label>
+          标题
+          <input type="text" name="title" value="${escapeHtml(
+            section.title
+          )}" required />
+        </label>
+        <label class="full">
+          文案
+          <textarea name="body" rows="3" required>${escapeHtml(
+            section.body
+          )}</textarea>
+        </label>
+        <label class="full">
+          图片 URL
+          <input type="text" id="sectionImageUrl-${escapeHtml(
+            section.id
+          )}" name="image_url" value="${escapeHtml(
+            section.image_url || ""
+          )}" />
+        </label>
+        <div class="full image-upload-box" data-image-upload-box data-target-input="sectionImageUrl-${escapeHtml(
+          section.id
+        )}">
+          <label>
+            上传分屏背景图
+            <input type="file" accept="image/*" data-image-upload-file />
+          </label>
+          <div class="inline-actions">
+            <button class="btn ghost" type="button" data-image-upload-button>上传并填入 URL</button>
+            <span class="muted" data-image-upload-status>上传后将自动填入上方“图片 URL”。</span>
+          </div>
+        </div>
+        <div class="section-editor-actions full">
+          <button class="btn primary" type="submit">保存修改</button>
+        </div>
+      </form>
+      <form method="post" action="/admin/invitation/sections/${section.id}/delete" class="inline-form section-editor-delete">
+        <button class="btn ghost" type="submit" onclick="return confirm('确认删除该分屏吗？');">删除</button>
       </form>
     </div>`
       )
@@ -715,8 +1265,27 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
 </section>
 
 <section class="card">
+  <h2>来宾信息收集项排序</h2>
+  <p class="muted">拖拽调整前后顺序，内置字段与自定义字段都支持。</p>
+  <form method="post" action="/admin/invitation/field-order" id="fieldOrderForm">
+    <input
+      type="hidden"
+      name="order_keys"
+      id="fieldOrderKeys"
+      value="${escapeHtml(orderedFieldKeysValue)}"
+    />
+    <div class="field-order-list" id="fieldOrderList">
+      ${orderedFieldOrderItemsHtml}
+    </div>
+    <div class="section-editor-actions">
+      <button class="btn primary" type="submit">保存排序</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
   <h2>来宾信息收集项</h2>
-  <form method="post" action="/admin/invitation/fields" class="form-grid">
+  <form method="post" action="/admin/invitation/fields" class="form-grid invitation-field-form" data-field-config-form>
     <label>
       字段名称
       <input type="text" name="label" required />
@@ -727,39 +1296,30 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
     </label>
     <label>
       类型
-      <select name="field_type" required>
+      <select name="field_type" required data-field-type-select>
         <option value="text">文本</option>
         <option value="textarea">多行文本</option>
         <option value="select">下拉选择</option>
+        <option value="date">日期</option>
+        <option value="checkbox">复选框</option>
+        <option value="radio">单选</option>
       </select>
     </label>
-    <label>
+    <label id="invitationFieldOptionsWrap" class="is-disabled" data-options-wrap>
       选项（逗号分隔）
-      <input type="text" name="options" placeholder="仅下拉选择使用" />
+      <input type="text" name="options" placeholder="下拉选择、单选或复选框使用，如：素食,不吃辣,海鲜过敏" disabled />
     </label>
-    <label class="inline">
-      <input type="checkbox" name="required" />
-      必填
-    </label>
+    <div class="field-required-wrap">
+      <label class="required-switch" for="invitationFieldRequired">
+        <span>设为必填</span>
+        <input type="checkbox" id="invitationFieldRequired" name="required" />
+      </label>
+      <p class="muted">开启后，来宾提交时必须填写该项。</p>
+    </div>
     <button class="btn primary" type="submit">新增字段</button>
   </form>
-  <div class="list">
-    ${fields
-      .map(
-        (field) => `
-    <div class="list-item">
-      <div>
-        <strong>${escapeHtml(field.label)}</strong>
-        <p>key: ${escapeHtml(field.field_key)} ｜ 类型：${escapeHtml(
-          field.field_type
-        )}</p>
-      </div>
-      <form method="post" action="/admin/invitation/fields/${field.id}/delete">
-        <button class="btn ghost" type="submit">删除</button>
-      </form>
-    </div>`
-      )
-      .join("")}
+  <div class="list invitation-field-list">
+    ${invitationFieldItemsHtml}
   </div>
 </section>
 <script>
@@ -767,49 +1327,270 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) =>
       const uploadButton = document.getElementById("inviteMusicUpload");
       const fileInput = document.getElementById("inviteMusicFile");
       const status = document.getElementById("inviteMusicStatus");
-      if (!uploadButton || !fileInput || !status) return;
+      if (uploadButton && fileInput && status) {
+        const setStatus = (message, isError = false) => {
+          status.textContent = message;
+          status.classList.toggle("alert", isError);
+          status.classList.toggle("muted", !isError);
+        };
 
-      const setStatus = (message, isError = false) => {
-        status.textContent = message;
-        status.classList.toggle("alert", isError);
-        status.classList.toggle("muted", !isError);
+        uploadButton.addEventListener("click", () => {
+          const file = fileInput.files && fileInput.files[0];
+          if (!file) {
+            setStatus("请选择音频文件后再上传。", true);
+            return;
+          }
+          if (!file.type.startsWith("audio/")) {
+            setStatus("仅支持上传音频文件。", true);
+            return;
+          }
+          setStatus("正在上传，请稍候...");
+          const reader = new FileReader();
+          reader.onload = async () => {
+            try {
+              const response = await fetch("/admin/invitation/music", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ dataUrl: reader.result, filename: file.name })
+              });
+              if (response.ok) {
+                window.location.reload();
+                return;
+              }
+              const text = await response.text();
+              setStatus(text || "上传失败，请稍后再试。", true);
+            } catch (error) {
+              setStatus("上传失败，请检查网络连接。", true);
+            }
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+
+      const readFileAsDataUrl = (file) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result || "");
+          reader.onerror = () => reject(new Error("读取文件失败"));
+          reader.readAsDataURL(file);
+        });
+
+      const uploadInvitationImage = async (file) => {
+        const dataUrl = await readFileAsDataUrl(file);
+        const response = await fetch("/admin/invitation/images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl, filename: file.name || "" })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "上传失败，请稍后重试。");
+        }
+        return result.url || "";
       };
 
-      uploadButton.addEventListener("click", () => {
-        const file = fileInput.files && fileInput.files[0];
-        if (!file) {
-          setStatus("请选择音频文件后再上传。", true);
-          return;
-        }
-        if (!file.type.startsWith("audio/")) {
-          setStatus("仅支持上传音频文件。", true);
-          return;
-        }
-        setStatus("正在上传，请稍候...");
-        const reader = new FileReader();
-        reader.onload = async () => {
-          try {
-            const response = await fetch("/admin/invitation/music", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ dataUrl: reader.result, filename: file.name })
-            });
-            if (response.ok) {
-              window.location.reload();
-              return;
-            }
-            const text = await response.text();
-            setStatus(text || "上传失败，请稍后再试。", true);
-          } catch (error) {
-            setStatus("上传失败，请检查网络连接。", true);
-          }
+      const imageUploadBoxes = Array.from(
+        document.querySelectorAll("[data-image-upload-box]")
+      );
+      imageUploadBoxes.forEach((box) => {
+        const file = box.querySelector("[data-image-upload-file]");
+        const button = box.querySelector("[data-image-upload-button]");
+        const statusEl = box.querySelector("[data-image-upload-status]");
+        const targetId = box.getAttribute("data-target-input");
+        const targetInput = targetId ? document.getElementById(targetId) : null;
+        if (!file || !button || !statusEl || !targetInput) return;
+
+        const setBoxStatus = (message, isError = false) => {
+          statusEl.textContent = message;
+          statusEl.classList.toggle("is-error", isError);
         };
-        reader.readAsDataURL(file);
+
+        const isLikelyImageFile = (item) => {
+          const mimeType = String(item?.type || "").toLowerCase();
+          if (mimeType.startsWith("image/")) return true;
+          const fileName = String(item?.name || "").toLowerCase();
+          return /\.(png|jpe?g|webp|gif|bmp|svg)$/.test(fileName);
+        };
+
+        button.addEventListener("click", async (event) => {
+          if (event) event.preventDefault();
+          setBoxStatus("正在准备上传...");
+          const selectedFiles = Array.from(file.files || []);
+          if (!selectedFiles.length) {
+            setBoxStatus("请先选择图片文件。", true);
+            return;
+          }
+          if (!selectedFiles.every((item) => isLikelyImageFile(item))) {
+            setBoxStatus("仅支持图片文件。", true);
+            return;
+          }
+          const targetMode = box.getAttribute("data-target-mode") || "replace";
+          const lineBreak = String.fromCharCode(10);
+          button.disabled = true;
+          setBoxStatus(
+            selectedFiles.length > 1
+              ? "正在上传 1/" + selectedFiles.length + " 张图片..."
+              : "正在上传图片，请稍候..."
+          );
+          try {
+            const uploadedUrls = [];
+            for (let index = 0; index < selectedFiles.length; index += 1) {
+              const selected = selectedFiles[index];
+              if (selectedFiles.length > 1) {
+                setBoxStatus(
+                  "正在上传 " + (index + 1) + "/" + selectedFiles.length + " 张图片..."
+                );
+              }
+              const imageUrl = await uploadInvitationImage(selected);
+              uploadedUrls.push(imageUrl);
+            }
+            if (targetMode === "append-lines") {
+              const existing = String(targetInput.value || "")
+                .replaceAll(String.fromCharCode(13), "")
+                .split(lineBreak)
+                .map((item) => item.trim())
+                .filter(Boolean);
+              targetInput.value = [...new Set([...existing, ...uploadedUrls])].join(
+                lineBreak
+              );
+            } else {
+              targetInput.value = uploadedUrls[uploadedUrls.length - 1] || "";
+            }
+            setBoxStatus(
+              uploadedUrls.length > 1
+                ? "上传成功，已追加 " + uploadedUrls.length + " 条 URL。"
+                : "上传成功，已自动填入 URL。"
+            );
+          } catch (error) {
+            setBoxStatus(error.message || "上传失败，请稍后重试。", true);
+          } finally {
+            button.disabled = false;
+          }
+        });
       });
+
+      const fieldOrderList = document.getElementById("fieldOrderList");
+      const fieldOrderKeysInput = document.getElementById("fieldOrderKeys");
+      if (fieldOrderList && fieldOrderKeysInput) {
+        const syncFieldOrder = () => {
+          const order = Array.from(
+            fieldOrderList.querySelectorAll("[data-order-item]")
+          )
+            .map((item) => item.getAttribute("data-field-key") || "")
+            .filter(Boolean);
+          fieldOrderKeysInput.value = order.join(",");
+        };
+
+        let draggingItem = null;
+        const getDragAfterElement = (container, y) => {
+          const candidates = Array.from(
+            container.querySelectorAll("[data-order-item]:not(.is-dragging)")
+          );
+          return candidates.reduce(
+            (closest, item) => {
+              const box = item.getBoundingClientRect();
+              const offset = y - box.top - box.height / 2;
+              if (offset < 0 && offset > closest.offset) {
+                return { offset, element: item };
+              }
+              return closest;
+            },
+            { offset: Number.NEGATIVE_INFINITY, element: null }
+          ).element;
+        };
+
+        fieldOrderList.querySelectorAll("[data-order-item]").forEach((item) => {
+          item.addEventListener("dragstart", (event) => {
+            if (event?.dataTransfer) {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(
+                "text/plain",
+                item.getAttribute("data-field-key") || ""
+              );
+            }
+            draggingItem = item;
+            item.classList.add("is-dragging");
+          });
+          item.addEventListener("dragend", () => {
+            item.classList.remove("is-dragging");
+            draggingItem = null;
+            syncFieldOrder();
+          });
+        });
+
+        fieldOrderList.addEventListener("dragenter", (event) => {
+          event.preventDefault();
+        });
+        fieldOrderList.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          if (event?.dataTransfer) {
+            event.dataTransfer.dropEffect = "move";
+          }
+          if (!draggingItem) return;
+          const afterElement = getDragAfterElement(fieldOrderList, event.clientY);
+          if (!afterElement) {
+            fieldOrderList.appendChild(draggingItem);
+            return;
+          }
+          fieldOrderList.insertBefore(draggingItem, afterElement);
+        });
+        fieldOrderList.addEventListener("drop", (event) => {
+          event.preventDefault();
+          syncFieldOrder();
+        });
+
+        fieldOrderList
+          .querySelectorAll("button[data-order-move]")
+          .forEach((button) => {
+            button.addEventListener("click", (event) => {
+              event.preventDefault();
+              const direction = Number(button.getAttribute("data-order-move")) || 0;
+              const item = button.closest("[data-order-item]");
+              if (!item || !direction) return;
+              if (direction < 0) {
+                const prev = item.previousElementSibling;
+                if (!prev) return;
+                fieldOrderList.insertBefore(item, prev);
+              } else {
+                const next = item.nextElementSibling;
+                if (!next) return;
+                fieldOrderList.insertBefore(next, item);
+              }
+              syncFieldOrder();
+            });
+          });
+
+        syncFieldOrder();
+      }
+
+      const syncFieldOptions = (form) => {
+        const fieldTypeSelect = form.querySelector("[data-field-type-select]");
+        const optionsWrap = form.querySelector("[data-options-wrap]");
+        const optionsInput = optionsWrap
+          ? optionsWrap.querySelector("input[name='options']")
+          : null;
+        if (!fieldTypeSelect || !optionsWrap || !optionsInput) return;
+        const needOptions = ["select", "checkbox", "radio"].includes(fieldTypeSelect.value);
+        optionsWrap.classList.toggle("is-disabled", !needOptions);
+        optionsInput.disabled = !needOptions;
+        if (!needOptions) {
+          optionsInput.value = "";
+        }
+      };
+
+      document
+        .querySelectorAll("[data-field-config-form]")
+        .forEach((form) => {
+          const fieldTypeSelect = form.querySelector("[data-field-type-select]");
+          if (!fieldTypeSelect) return;
+          fieldTypeSelect.addEventListener("change", () => syncFieldOptions(form));
+          syncFieldOptions(form);
+        });
     })();
   </script>
 `
   );
+};
 
 const renderGuests = ({ guests, fields, tables, error, errorGuestId }) => {
   const tableList = tables || [];
@@ -879,47 +1660,14 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         : `<p class="muted full">请先在下方新增桌子，再为来宾分配席位。</p>`
     }
     ${fields
-      .map((field) => {
-        if (field.field_type === "textarea") {
-          return `
-    <label class="full">
-      ${escapeHtml(field.label)}
-      <textarea name="${escapeHtml(field.field_key)}" rows="2" ${
-            field.required ? "required" : ""
-          }></textarea>
-    </label>`;
-        }
-        if (field.field_type === "select") {
-          const options = (field.options || "")
-            .split(",")
-            .map((option) => option.trim())
-            .filter(Boolean)
-            .map(
-              (option) =>
-                `<option value="${escapeHtml(option)}">${escapeHtml(
-                  option
-                )}</option>`
-            )
-            .join("");
-          return `
-    <label>
-      ${escapeHtml(field.label)}
-      <select name="${escapeHtml(field.field_key)}" ${
-            field.required ? "required" : ""
-          }>
-        <option value="">请选择</option>
-        ${options}
-      </select>
-    </label>`;
-        }
-        return `
-    <label>
-      ${escapeHtml(field.label)}
-      <input type="text" name="${escapeHtml(field.field_key)}" ${
-          field.required ? "required" : ""
-        } />
-    </label>`;
-      })
+      .map((field) =>
+        renderCustomFieldInput({
+          field,
+          fullWidth: ["textarea", "checkbox", "radio"].includes(
+            normalizeCustomFieldType(field)
+          )
+        })
+      )
       .join("")}
     <button class="btn primary" type="submit">新增来宾</button>
   </form>
@@ -1104,10 +1852,11 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
           const nextGuest = guests[index + 1];
           const focusGuestId = nextGuest?.id || prevGuest?.id || guest.id;
           const customInfoItems = fields.map((field) => {
-            const value = (guest.responses || {})[field.field_key] || "";
+            const rawValue = (guest.responses || {})[field.field_key] || "";
             return {
               field,
-              value: String(value || "")
+              rawValue,
+              value: formatCustomFieldValue(field, rawValue)
             };
           });
           const filledCustomInfo = customInfoItems.filter((item) =>
@@ -1212,59 +1961,13 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
             <div class="dialog-body">
               <div class="form-stack dialog-fields">
                 ${customInfoItems
-                  .map((item) => {
-                    const value = item.value;
-                    const field = item.field;
-                    if (field.field_type === "textarea") {
-                      return `
-                <label>
-                  ${escapeHtml(field.label)}
-                  <textarea name="${escapeHtml(
-                    field.field_key
-                  )}" rows="2" form="guest-form-${guest.id}" ${
-                        field.required ? "required" : ""
-                      }>${escapeHtml(
-                        value
-                      )}</textarea>
-                </label>`;
-                    }
-                    if (field.field_type === "select") {
-                      const options = (field.options || "")
-                        .split(",")
-                        .map((option) => option.trim())
-                        .filter(Boolean)
-                        .map((option) => {
-                          const escaped = escapeHtml(option);
-                          return `<option value="${escaped}" ${
-                            option === value ? "selected" : ""
-                          }>${escaped}</option>`;
-                        })
-                        .join("");
-                      return `
-                <label>
-                  ${escapeHtml(field.label)}
-                  <select name="${escapeHtml(
-                    field.field_key
-                  )}" form="guest-form-${guest.id}" ${
-                        field.required ? "required" : ""
-                      }>
-                    <option value="">请选择</option>
-                    ${options}
-                  </select>
-                </label>`;
-                    }
-                    return `
-                <label>
-                  ${escapeHtml(field.label)}
-                  <input type="text" name="${escapeHtml(
-                    field.field_key
-                  )}" value="${escapeHtml(
-                      value
-                    )}" form="guest-form-${guest.id}" ${
-                        field.required ? "required" : ""
-                      } />
-                </label>`;
-                  })
+                  .map((item) =>
+                    renderCustomFieldInput({
+                      field: item.field,
+                      value: item.rawValue,
+                      form: `guest-form-${guest.id}`
+                    })
+                  )
                   .join("")}
               </div>
             </div>
@@ -1522,7 +2225,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
   <div class="section-header">
     <div>
       <h2>流水单</h2>
-      <p>支持按类别筛选与导出 Excel。</p>
+      <p>支持按类别筛选、导出与导入 CSV。</p>
     </div>
     <div class="ledger-actions">
       <form method="get" action="/admin/ledger" class="inline-form ledger-filter">
@@ -1535,6 +2238,11 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         </label>
         <button class="btn ghost" type="submit">筛选</button>
       </form>
+      <div class="ledger-import">
+        <input type="file" id="ledgerImportFile" accept=".csv,text/csv" />
+        <button class="btn ghost" type="button" id="ledgerImportButton">导入CSV</button>
+        <span class="muted ledger-import-status" id="ledgerImportStatus">可直接导入系统导出的流水 CSV 文件。</span>
+      </div>
       <a class="btn primary" href="${exportHref}">导出Excel</a>
     </div>
   </div>
@@ -1642,6 +2350,59 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
         } else if (filterSelect.form) {
           filterSelect.form.submit();
         }
+      });
+    }
+
+    const importFileInput = document.getElementById("ledgerImportFile");
+    const importButton = document.getElementById("ledgerImportButton");
+    const importStatus = document.getElementById("ledgerImportStatus");
+    if (importFileInput && importButton && importStatus) {
+      const setImportStatus = (message, isError = false) => {
+        importStatus.textContent = message;
+        importStatus.classList.toggle("is-error", isError);
+      };
+
+      importButton.addEventListener("click", () => {
+        const file = importFileInput.files && importFileInput.files[0];
+        if (!file) {
+          setImportStatus("请先选择 CSV 文件。", true);
+          return;
+        }
+        const lowerName = String(file.name || "").toLowerCase();
+        if (!lowerName.endsWith(".csv") && file.type !== "text/csv") {
+          setImportStatus("仅支持导入 CSV 文件。", true);
+          return;
+        }
+        setImportStatus("正在读取并导入，请稍候...");
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const response = await fetch("/admin/ledger/import", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                csv_text: reader.result || "",
+                filename: file.name || ""
+              })
+            });
+            const result = await response.json();
+            if (!response.ok) {
+              setImportStatus(result.error || "导入失败，请检查文件内容。", true);
+              return;
+            }
+            const summary = "导入完成：新增 " + (result.inserted || 0) + " 条，跳过 " + (result.skipped || 0) + " 条。";
+            setImportStatus(summary, false);
+            if (Array.isArray(result.errors) && result.errors.length) {
+              setImportStatus(summary + " " + result.errors.slice(0, 2).join(" "), true);
+            }
+            setTimeout(() => {
+              location.reload();
+            }, 700);
+          } catch (error) {
+            setImportStatus("导入失败，请检查网络连接或文件格式。", true);
+          }
+        };
+        reader.readAsText(file);
       });
     }
   })();
@@ -2083,6 +2844,57 @@ const renderAdminCheckins = ({
 const renderInvite = ({ settings, sections, fields, submitted }) => {
   const guestFontScale = clampNumber(settings?.guest_font_scale, 1, 2.5, 1.1);
   const inviteMusicUrl = settings?.invitation_music_url || "";
+  const [coupleNameLine1, coupleNameLine2] = getCoupleNameLines(
+    settings?.couple_name || ""
+  );
+  const mapLinks = buildInviteMapLinks(settings);
+  const routeImageUrls = getWeddingRouteImageUrls(settings);
+  const hasMapChooser = mapLinks.length > 0 || routeImageUrls.length > 0;
+  const orderedGuestFields = getOrderedGuestCollectionFields({ settings, fields });
+  const mapChooserDialogHtml = hasMapChooser
+    ? `<dialog class="map-chooser-dialog" id="inviteMapChooser">
+        <div class="map-chooser-head">
+          <strong>地图导航与路线指引</strong>
+          <button class="map-chooser-close" type="button" data-map-chooser-close>关闭</button>
+        </div>
+        <p class="map-chooser-location">${escapeHtml(
+          settings.wedding_location || "婚礼地点"
+        )}</p>
+        ${
+          routeImageUrls.length
+            ? `<div class="map-route-gallery">
+                ${routeImageUrls
+                  .map(
+                    (url) => `<a href="${escapeHtml(
+                      url
+                    )}" target="_blank" rel="noopener noreferrer">
+                        <img src="${escapeHtml(url)}" alt="实景路线图" loading="lazy" />
+                      </a>`
+                  )
+                  .join("")}
+              </div>`
+            : ""
+        }
+        <div class="map-chooser-list">
+          ${
+            mapLinks.length
+              ? mapLinks
+                  .map(
+                    (item) => `<a class="map-chooser-link" href="${escapeHtml(
+                      item.url
+                    )}" target="_blank" rel="noopener noreferrer" data-map-chooser-link>
+                      ${escapeHtml(item.label)}
+                    </a>`
+                  )
+                  .join("")
+              : `<div class="muted">暂未配置地图链接。</div>`
+          }
+        </div>
+      </dialog>`
+    : "";
+  const heroImageUrl =
+    settings?.hero_image_url ||
+    "https://images.unsplash.com/photo-1505489304219-85ce17010209?q=80&w=1600&auto=format&fit=crop";
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -2117,22 +2929,42 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
             <div class="invite-success-card">
               <canvas id="inviteCardCanvas" width="720" height="480"></canvas>
             </div>
-            <div class="invite-success-actions">
-              <a class="btn primary" id="inviteCardDownload" href="#">下载婚礼信息卡</a>
-            </div>
+	            <div class="invite-success-actions">
+	              <a class="btn primary" id="inviteCardDownload" href="#">下载婚礼信息卡</a>
+                ${
+                  hasMapChooser
+                    ? `<button class="btn primary" type="button" data-map-chooser-open="true">查看地图导航</button>`
+                    : ""
+                }
+	            </div>
             <div class="invite-success-note">
               如信息填写错误，您可随时再次打开请柬链接重新填写
             </div>
           </div>`
               : `
 
-      <section class="hero">
+      <section class="hero" style="background-image: url('${escapeHtml(
+        heroImageUrl
+      )}')">
         <div class="hero-overlay">
-          <h1>${escapeHtml(settings.couple_name || "")}</h1>
+          <h1 class="couple-name">
+            <span>${escapeHtml(coupleNameLine1)}</span>
+            ${
+              coupleNameLine2
+                ? `<span class="couple-separator">&amp;</span>
+                   <span>${escapeHtml(coupleNameLine2)}</span>`
+                : ""
+            }
+          </h1>
           <p>${escapeHtml(settings.hero_message || "")}</p>
           <div class="hero-meta">
             <span>${escapeHtml(settings.wedding_date || "")}</span>
             <span>${escapeHtml(settings.wedding_location || "")}</span>
+            ${
+              hasMapChooser
+                ? `<button class="hero-map-open" type="button" data-map-chooser-open="true">地图导航</button>`
+                : ""
+            }
           </div>
         </div>
       </section>
@@ -2153,81 +2985,56 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
           .join("")}
       </div>
 
-      <section class="rsvp" id="rsvp">
-        <div class="rsvp-card">
-          <h2>填写来宾信息</h2>
-          <form method="post" action="/invite/rsvp" class="form-stack">
-            <label>
-              姓名
-              <input type="text" name="name" required />
-            </label>
-            <label>
-              手机号
-              <input type="tel" name="phone" required />
-            </label>
-            <label>
-              出席人数
-              ${renderInviteAttendeeSelect({
-                name: "attendees",
-                required: true
-              })}
-            </label>
-            <label>
-              出席情况
-              ${renderAttendingSelect({ name: "attending", value: true, required: true })}
-            </label>
-            ${fields
-              .map((field) => {
-                if (field.field_type === "textarea") {
-                  return `
-            <label>
-              ${escapeHtml(field.label)}
-              <textarea name="${escapeHtml(field.field_key)}" rows="2" ${
-                    field.required ? "required" : ""
-                  }></textarea>
-            </label>`;
-                }
-                if (field.field_type === "select") {
-                  const options = (field.options || "")
-                    .split(",")
-                    .map((option) => option.trim())
-                    .filter(Boolean)
-                    .map(
-                      (option) =>
-                        `<option value="${escapeHtml(option)}">${escapeHtml(
-                          option
-                        )}</option>`
-                    )
-                    .join("");
-                  return `
-            <label>
-              ${escapeHtml(field.label)}
-              <select name="${escapeHtml(field.field_key)}" ${
-                    field.required ? "required" : ""
-                  }>
-                <option value="">请选择</option>
-                ${options}
-              </select>
-            </label>`;
-                }
-                return `
-            <label>
-              ${escapeHtml(field.label)}
-              <input type="text" name="${escapeHtml(field.field_key)}" ${
-                  field.required ? "required" : ""
-                } />
-            </label>`;
-              })
-              .join("")}
-            <button class="btn primary" type="submit" style="font-size:large">提交信息</button>
-          </form>
-        </div>
-      </section>
+	      <section class="rsvp" id="rsvp">
+	        <div class="rsvp-card">
+	          <h2>填写来宾信息</h2>
+	          <form method="post" action="/invite/rsvp" class="form-stack">
+	            ${orderedGuestFields
+                .map((field) => {
+                  if (field.is_builtin && field.field_key === "name") {
+                    return `<label>
+                      姓名
+                      <input type="text" name="name" required />
+                    </label>`;
+                  }
+                  if (field.is_builtin && field.field_key === "phone") {
+                    return `<label>
+                      手机号
+                      <input type="tel" name="phone" required />
+                    </label>`;
+                  }
+                  if (field.is_builtin && field.field_key === "attendees") {
+                    return `<label>
+                      出席人数
+                      ${renderInviteAttendeeSelect({
+                        name: "attendees",
+                        required: true
+                      })}
+                    </label>`;
+                  }
+                  if (field.is_builtin && field.field_key === "attending") {
+                    return `<label>
+                      出席情况
+                      ${renderAttendingSelect({
+                        name: "attending",
+                        value: true,
+                        required: true
+                      })}
+                    </label>`;
+                  }
+                  return renderCustomFieldInput({ field });
+                })
+                .join("")}
+	            <button class="btn primary" type="submit" style="font-size:large">提交信息</button>
+	          </form>
+	        </div>
+	      </section>
 
-      `
-      }
-    </div>
-  </body>
+	      `
+	      }
+      ${mapChooserDialogHtml}
+	    </div>
+	  </body>
   <script>
     ${attendeePickerScript}
     ${renderInviteSuccessScript(settings, submitted)}
@@ -2283,6 +3090,47 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
 
       document.addEventListener("click", unlockPlay, { once: true });
       document.addEventListener("touchstart", unlockPlay, { once: true });
+    })();
+
+    (() => {
+      const openButtons = Array.from(
+        document.querySelectorAll("[data-map-chooser-open='true']")
+      );
+      const dialog = document.getElementById("inviteMapChooser");
+      if (!openButtons.length || !dialog) return;
+
+      const closeDialog = () => {
+        if (typeof dialog.close === "function") {
+          dialog.close();
+          return;
+        }
+        dialog.removeAttribute("open");
+      };
+
+      const openDialog = () => {
+        if (typeof dialog.showModal === "function") {
+          dialog.showModal();
+          return;
+        }
+        dialog.setAttribute("open", "true");
+      };
+
+      openButtons.forEach((button) => {
+        button.addEventListener("click", openDialog);
+      });
+      dialog.querySelectorAll("[data-map-chooser-close]").forEach((button) => {
+        button.addEventListener("click", closeDialog);
+      });
+      dialog.querySelectorAll("[data-map-chooser-link]").forEach((link) => {
+        link.addEventListener("click", () => {
+          setTimeout(closeDialog, 50);
+        });
+      });
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) {
+          closeDialog();
+        }
+      });
     })();
   </script>
 </html>
@@ -2378,53 +3226,12 @@ const renderCheckin = ({
                   )}" required />
                 </label>
                 ${(fields || [])
-                  .map((field) => {
-                    if (field.field_type === "textarea") {
-                      return `
-                <label>
-                  ${escapeHtml(field.label)}
-                  <textarea name="${escapeHtml(
-                    field.field_key
-                  )}" rows="2" ${field.required ? "required" : ""}>${escapeHtml(
-                        formValues?.[field.field_key] || ""
-                      )}</textarea>
-                </label>`;
-                    }
-                    if (field.field_type === "select") {
-                      const options = (field.options || "")
-                        .split(",")
-                        .map((option) => option.trim())
-                        .filter(Boolean)
-                        .map((option) => {
-                          const escaped = escapeHtml(option);
-                          const selected =
-                            option === formValues?.[field.field_key]
-                              ? "selected"
-                              : "";
-                          return `<option value="${escaped}" ${selected}>${escaped}</option>`;
-                        })
-                        .join("");
-                      return `
-                <label>
-                  ${escapeHtml(field.label)}
-                  <select name="${escapeHtml(
-                    field.field_key
-                  )}" ${field.required ? "required" : ""}>
-                    <option value="">请选择</option>
-                    ${options}
-                  </select>
-                </label>`;
-                    }
-                    return `
-                <label>
-                  ${escapeHtml(field.label)}
-                  <input type="text" name="${escapeHtml(
-                    field.field_key
-                  )}" value="${escapeHtml(
-                      formValues?.[field.field_key] || ""
-                    )}" ${field.required ? "required" : ""} />
-                </label>`;
-                  })
+                  .map((field) =>
+                    renderCustomFieldInput({
+                      field,
+                      value: formValues?.[field.field_key] || ""
+                    })
+                  )
                   .join("")}
                 <label class="inline">
                   <input type="checkbox" name="confirm_attending" required ${

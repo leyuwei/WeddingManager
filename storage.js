@@ -81,6 +81,8 @@ const nextId = (store, key) => {
 };
 
 const seedStore = (store) => {
+  const defaultHeroImageUrl =
+    "https://images.unsplash.com/photo-1505489304219-85ce17010209?q=80&w=1600&auto=format&fit=crop";
   if (!store.admins || store.admins.length === 0) {
     store.admins = store.admins || [];
     store.admins.push({
@@ -142,7 +144,11 @@ const seedStore = (store) => {
       couple_name: "林曦 & 周然",
       wedding_date: "2025年5月20日 17:30",
       wedding_location: "海滨花园宴会厅",
+      wedding_location_map_url: "",
+      wedding_route_image_urls: [],
+      invitation_guest_field_order: [],
       hero_message: "诚挚邀请你见证我们的幸福时刻",
+      hero_image_url: defaultHeroImageUrl,
       guest_font_scale: 1.1,
       invitation_music_url: ""
     };
@@ -155,6 +161,30 @@ const seedStore = (store) => {
 
   if (!store.settings.invitation_music_url) {
     store.settings.invitation_music_url = "";
+  }
+
+  if (!store.settings.hero_image_url) {
+    store.settings.hero_image_url = defaultHeroImageUrl;
+  }
+
+  if (!store.settings.wedding_location_map_url) {
+    store.settings.wedding_location_map_url = "";
+  }
+
+  if (!Array.isArray(store.settings.wedding_route_image_urls)) {
+    const rawValue = String(store.settings.wedding_route_image_urls || "");
+    store.settings.wedding_route_image_urls = rawValue
+      .split(/\r?\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (!Array.isArray(store.settings.invitation_guest_field_order)) {
+    const rawValue = String(store.settings.invitation_guest_field_order || "");
+    store.settings.invitation_guest_field_order = rawValue
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
 
   store.guests = store.guests || [];

@@ -6,7 +6,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "wm:start": "./scripts/wm.sh start",
+    "wm:fg": "./scripts/wm.sh foreground",
+    "wm:stop": "./scripts/wm.sh stop",
+    "wm:status": "./scripts/wm.sh status",
+    "wm:logs": "./scripts/wm.sh logs"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3"
