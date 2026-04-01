@@ -17,10 +17,364 @@ const normalizeAttendeeValue = (value) => {
 
 const toDomId = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "-");
 
+const SITE_LOGO_ICON_PATH = "/public/assets/wm-mark.svg";
+
+const renderFaviconLinks = () => `
+    <link rel="icon" type="image/svg+xml" href="${SITE_LOGO_ICON_PATH}" />
+    <link rel="apple-touch-icon" href="${SITE_LOGO_ICON_PATH}" />`;
+
+const normalizePageCoupleName = (value) =>
+  String(value || "")
+    .replace(/\r?\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildPublicPageTitle = (settings, fallback) => {
+  const coupleName = normalizePageCoupleName(settings?.couple_name);
+  if (!coupleName) return fallback;
+  return `${coupleName}｜${fallback}`;
+};
+
+const renderPublicLogoBadge = ({
+  href = "/invite",
+  className = "public-site-logo"
+} = {}) => `
+      <a class="${escapeHtml(className)}" href="${escapeHtml(
+  href
+)}" aria-label="Wedding Manager">
+        <img src="${SITE_LOGO_ICON_PATH}" alt="" />
+        <span>Wedding Manager</span>
+      </a>`;
+
 const clampNumber = (value, min, max, fallback) => {
   const parsed = Number(value);
   if (Number.isNaN(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
+};
+
+const normalizeHexColor = (value, fallback) => {
+  const normalized = String(value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(normalized)) {
+    const [r, g, b] = normalized.slice(1).split("");
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return fallback;
+};
+
+const hexToRgbTuple = (value, fallback) => {
+  const safeHex = normalizeHexColor(value, fallback).slice(1);
+  const r = Number.parseInt(safeHex.slice(0, 2), 16);
+  const g = Number.parseInt(safeHex.slice(2, 4), 16);
+  const b = Number.parseInt(safeHex.slice(4, 6), 16);
+  return `${r}, ${g}, ${b}`;
+};
+
+const normalizeHeroNamePosition = (value, fallback = "near_message") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["near_message", "top", "center"].includes(normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const sectionBackgroundModeOptions = [
+  { value: "cover", label: "铺满裁剪（当前默认）" },
+  { value: "contain", label: "完整显示（可能留白）" },
+  { value: "stretch", label: "拉伸填充" },
+  { value: "repeat", label: "平铺重复" },
+  { value: "repeat-x", label: "横向重复" },
+  { value: "repeat-y", label: "纵向重复" }
+];
+
+const inviteFontOptions = [
+  {
+    value: "system",
+    label: "系统无衬线（默认）",
+    stack:
+      '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif'
+  },
+  {
+    value: "songti",
+    label: "宋体 / Songti",
+    stack:
+      '"Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", "SimSun", "NSimSun", "PMingLiU", serif'
+  },
+  {
+    value: "zhong_song",
+    label: "华文中宋",
+    stack:
+      '"STZhongsong", "华文中宋", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif'
+  },
+  {
+    value: "kaiti",
+    label: "楷体 / Kaiti",
+    stack:
+      '"Kaiti SC", "STKaiti", "KaiTi", "楷体", "LXGW WenKai", "DFKai-SB", "Noto Serif SC", serif'
+  },
+  {
+    value: "fangsong",
+    label: "仿宋 / FangSong",
+    stack:
+      '"STFangsong", "FangSong", "仿宋", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif'
+  },
+  {
+    value: "heiti",
+    label: "黑体 / Heiti",
+    stack:
+      '"PingFang SC", "Hiragino Sans GB", "Heiti SC", "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
+  },
+  {
+    value: "yuanti",
+    label: "圆体风格",
+    stack:
+      '"PingFang SC", "Hiragino Sans GB", "YouYuan", "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
+  },
+  {
+    value: "romance",
+    label: "英文字体浪漫风",
+    stack:
+      '"Great Vibes", "Noto Serif SC", "Songti SC", "STSong", "PingFang SC", "Microsoft YaHei", serif'
+  }
+];
+
+const textAnimationOptions = [
+  { value: "fade_up", label: "轻柔上浮" },
+  { value: "soft_zoom", label: "淡入缩放" },
+  { value: "glow_rise", label: "微光浮现" }
+];
+
+const countdownThemeOptions = [
+  { value: "glass", label: "玻璃卡片" },
+  { value: "romantic", label: "浪漫粉金" },
+  { value: "ink", label: "墨色简约" },
+  { value: "gold", label: "香槟金" }
+];
+
+const countdownPositionOptions = [
+  { value: "top-left", label: "左上" },
+  { value: "top-center", label: "上方居中" },
+  { value: "top-right", label: "右上" },
+  { value: "bottom-left", label: "左下" },
+  { value: "bottom-center", label: "下方居中" },
+  { value: "bottom-right", label: "右下" }
+];
+
+const swipeHintPositionOptions = [
+  { value: "top-left", label: "左上" },
+  { value: "top-center", label: "上方居中" },
+  { value: "top-right", label: "右上" },
+  { value: "bottom-left", label: "左下" },
+  { value: "bottom-center", label: "下方居中（推荐）" },
+  { value: "bottom-right", label: "右下" }
+];
+
+const swipeHintStyleOptions = [
+  { value: "soft_glow", label: "柔光呼吸（推荐）" },
+  { value: "minimal", label: "简洁细线" },
+  { value: "festive_chip", label: "喜庆徽章" }
+];
+
+const festiveThemeOptions = [
+  { value: "classic_red", label: "大红金喜（推荐）" },
+  { value: "palace_gold", label: "宫廷鎏金" },
+  { value: "garden_bloom", label: "花朝锦色" },
+  { value: "champagne_waltz", label: "香槟白金（西式）" }
+];
+
+const festiveEffectStyleOptions = [
+  { value: "lantern", label: "祝福徽章飘动" },
+  { value: "petal", label: "花瓣飘落" },
+  { value: "confetti", label: "彩屑庆典" },
+  { value: "sparkle", label: "星芒闪烁" }
+];
+
+const festiveEffectIntensityOptions = [
+  { value: "gentle", label: "轻柔" },
+  { value: "normal", label: "标准" },
+  { value: "vivid", label: "热闹" }
+];
+
+const normalizeSectionBackgroundMode = (value, fallback = "cover") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (sectionBackgroundModeOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const normalizeInviteFont = (value, fallback = "system") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (inviteFontOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const getInviteFontStack = (value, fallback = "system") => {
+  const normalized = normalizeInviteFont(value, fallback);
+  const matched = inviteFontOptions.find((item) => item.value === normalized);
+  return matched ? matched.stack : inviteFontOptions[0].stack;
+};
+
+const normalizeTextAnimationStyle = (value, fallback = "fade_up") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (textAnimationOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const normalizeCountdownTheme = (value, fallback = "glass") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (countdownThemeOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const normalizeCountdownPosition = (value, fallback = "top-right") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (countdownPositionOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const normalizeSwipeHintPosition = (value, fallback = "bottom-center") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (swipeHintPositionOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const normalizeSwipeHintStyle = (value, fallback = "soft_glow") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (swipeHintStyleOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const normalizeFestiveTheme = (value, fallback = "classic_red") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (festiveThemeOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const normalizeFestiveEffectStyle = (value, fallback = "lantern") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (festiveEffectStyleOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const normalizeFestiveEffectIntensity = (value, fallback = "normal") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (festiveEffectIntensityOptions.some((item) => item.value === normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
+
+const formatDateTimeLocalInput = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) return normalized;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(normalized)) {
+    return normalized.slice(0, 16);
+  }
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const pad = (item) => String(item).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(
+    parsed.getDate()
+  )}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+};
+
+const fallbackCountdownTarget = (settings = {}) => {
+  const direct = formatDateTimeLocalInput(settings?.countdown_target_at);
+  if (direct) return direct;
+
+  const rawDate = String(settings?.wedding_date || "").trim();
+  const zhMatch = rawDate.match(
+    /(\d{4})年(\d{1,2})月(\d{1,2})日\s*(\d{1,2})[:：](\d{2})/
+  );
+  if (zhMatch) {
+    const pad = (item) => String(item).padStart(2, "0");
+    return `${zhMatch[1]}-${pad(zhMatch[2])}-${pad(zhMatch[3])}T${pad(
+      zhMatch[4]
+    )}:${pad(zhMatch[5])}`;
+  }
+
+  const isoMatch = rawDate.match(
+    /(\d{4})-(\d{1,2})-(\d{1,2})\s*(\d{1,2}):(\d{2})/
+  );
+  if (isoMatch) {
+    const pad = (item) => String(item).padStart(2, "0");
+    return `${isoMatch[1]}-${pad(isoMatch[2])}-${pad(isoMatch[3])}T${pad(
+      isoMatch[4]
+    )}:${pad(isoMatch[5])}`;
+  }
+  return "";
+};
+
+const getSectionBackgroundModeLabel = (value) => {
+  const normalized = normalizeSectionBackgroundMode(value, "cover");
+  const option = sectionBackgroundModeOptions.find(
+    (item) => item.value === normalized
+  );
+  return option ? option.label : sectionBackgroundModeOptions[0].label;
+};
+
+const getSectionBackgroundStyle = (value) => {
+  const normalized = normalizeSectionBackgroundMode(value, "cover");
+  if (normalized === "contain") {
+    return {
+      size: "contain",
+      repeat: "no-repeat",
+      position: "center center"
+    };
+  }
+  if (normalized === "stretch") {
+    return {
+      size: "100% 100%",
+      repeat: "no-repeat",
+      position: "center center"
+    };
+  }
+  if (normalized === "repeat") {
+    return {
+      size: "auto",
+      repeat: "repeat",
+      position: "left top"
+    };
+  }
+  if (normalized === "repeat-x") {
+    return {
+      size: "auto",
+      repeat: "repeat-x",
+      position: "left center"
+    };
+  }
+  if (normalized === "repeat-y") {
+    return {
+      size: "auto",
+      repeat: "repeat-y",
+      position: "center top"
+    };
+  }
+  return {
+    size: "cover",
+    repeat: "no-repeat",
+    position: "center center"
+  };
 };
 
 const getCoupleNameLines = (value) => {
@@ -169,13 +523,20 @@ const renderInviteAttendeeSelect = ({ name, value, required = false }) => {
       </select>`;
 };
 
-const renderInviteSuccessScript = (settings, submitted) => {
+const renderInviteSuccessScript = (settings, submitted, submittedGuest = {}) => {
   if (String(submitted) !== "1") return "";
   const payload = {
     coupleName: settings?.couple_name || "",
     weddingDate: settings?.wedding_date || "",
     weddingLocation: settings?.wedding_location || "",
-    heroMessage: settings?.hero_message || ""
+    heroMessage: settings?.hero_message || "",
+    lunarDateEnabled: settings?.lunar_date_enabled === true,
+    qrForceHttps: settings?.qr_force_https !== false,
+    headingFont: getInviteFontStack(settings?.invite_font_heading, "songti"),
+    baseFont: getInviteFontStack(settings?.invite_font_base, "system"),
+    guestName: String(submittedGuest?.name || "").trim(),
+    guestPhone: String(submittedGuest?.phone || "").trim(),
+    guestAttendees: String(submittedGuest?.attendees || "").trim()
   };
   return `
   (() => {
@@ -183,6 +544,63 @@ const renderInviteSuccessScript = (settings, submitted) => {
     const canvas = document.getElementById("inviteCardCanvas");
     const downloadButton = document.getElementById("inviteCardDownload");
     const calendarLink = document.getElementById("inviteAddCalendar");
+    const isLocalHost = (hostname) => {
+      const normalized = String(hostname || "").trim().toLowerCase();
+      return (
+        normalized === "localhost" ||
+        normalized === "127.0.0.1" ||
+        normalized === "[::1]" ||
+        normalized === "::1" ||
+        normalized === "0.0.0.0" ||
+        normalized.endsWith(".local")
+      );
+    };
+    const resolveInviteUrl = () => {
+      try {
+        const url = new URL(window.location.href);
+        url.search = "";
+        url.hash = "";
+        if (
+          data.qrForceHttps &&
+          !isLocalHost(url.hostname) &&
+          url.protocol !== "https:"
+        ) {
+          url.protocol = "https:";
+        }
+        return url.toString();
+      } catch (error) {
+        try {
+          const fallback = new URL("/invite", window.location.origin || "");
+          if (
+            data.qrForceHttps &&
+            !isLocalHost(fallback.hostname) &&
+            fallback.protocol !== "https:"
+          ) {
+            fallback.protocol = "https:";
+          }
+          return fallback.toString();
+        } catch (nestedError) {
+          return "/invite";
+        }
+      }
+    };
+    const loadImage = (url) =>
+      new Promise((resolve, reject) => {
+        const image = new Image();
+        image.crossOrigin = "anonymous";
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("image-load-failed"));
+        image.src = url;
+      });
+    const updateDownloadLink = () => {
+      if (!downloadButton || !canvas) return;
+      try {
+        downloadButton.href = canvas.toDataURL("image/png");
+        downloadButton.download = "婚礼信息卡.png";
+      } catch (error) {
+        downloadButton.href = "#";
+      }
+    };
 
     const pad = (value) => String(value).padStart(2, "0");
     const toIcsDate = (parts) =>
@@ -190,26 +608,46 @@ const renderInviteSuccessScript = (settings, submitted) => {
         parts.hour
       )}\${pad(parts.minute)}00\`;
     const parseDate = (raw) => {
-      const match = String(raw || "").match(
+      const normalized = String(raw || "").trim();
+      if (!normalized) return null;
+      const match = normalized.match(
         /(\\d{4})年(\\d{1,2})月(\\d{1,2})日\\s*(\\d{1,2})[:：](\\d{2})/
       );
-      if (!match) return null;
+      if (match) {
+        return {
+          year: Number(match[1]),
+          month: Number(match[2]),
+          day: Number(match[3]),
+          hour: Number(match[4]),
+          minute: Number(match[5])
+        };
+      }
+      const isoMatch = normalized.match(
+        /(\\d{4})-(\\d{1,2})-(\\d{1,2})[T\\s](\\d{1,2}):(\\d{2})/
+      );
+      if (isoMatch) {
+        return {
+          year: Number(isoMatch[1]),
+          month: Number(isoMatch[2]),
+          day: Number(isoMatch[3]),
+          hour: Number(isoMatch[4]),
+          minute: Number(isoMatch[5])
+        };
+      }
+      const parsed = new Date(normalized.replace(" ", "T"));
+      if (Number.isNaN(parsed.getTime())) return null;
       return {
-        year: Number(match[1]),
-        month: Number(match[2]),
-        day: Number(match[3]),
-        hour: Number(match[4]),
-        minute: Number(match[5])
+        year: parsed.getFullYear(),
+        month: parsed.getMonth() + 1,
+        day: parsed.getDate(),
+        hour: parsed.getHours(),
+        minute: parsed.getMinutes()
       };
     };
+    const toDate = (parts) =>
+      new Date(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
     const addHours = (parts, hours) => {
-      const date = new Date(
-        parts.year,
-        parts.month - 1,
-        parts.day,
-        parts.hour,
-        parts.minute
-      );
+      const date = toDate(parts);
       date.setHours(date.getHours() + hours);
       return {
         year: date.getFullYear(),
@@ -218,6 +656,21 @@ const renderInviteSuccessScript = (settings, submitted) => {
         hour: date.getHours(),
         minute: date.getMinutes()
       };
+    };
+    const formatLunarDate = (parts) => {
+      if (!parts || !data.lunarDateEnabled) return "";
+      try {
+        const date = toDate(parts);
+        if (Number.isNaN(date.getTime())) return "";
+        const lunarText = new Intl.DateTimeFormat("zh-CN-u-ca-chinese", {
+          year: "numeric",
+          month: "long",
+          day: "numeric"
+        }).format(date);
+        return "农历 " + lunarText;
+      } catch (error) {
+        return "";
+      }
     };
 
     const startParts =
@@ -274,43 +727,323 @@ const renderInviteSuccessScript = (settings, submitted) => {
       if (!ctx) return;
       const width = canvas.width;
       const height = canvas.height;
-      const gradient = ctx.createLinearGradient(0, 0, width, height);
-      gradient.addColorStop(0, "#fff5f8");
-      gradient.addColorStop(1, "#f3f4ff");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, width, height);
-      ctx.strokeStyle = "#e8dfe6";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(24, 24, width - 48, height - 48);
+      const lunarText = formatLunarDate(startParts);
+      const inviteUrl = resolveInviteUrl();
+      const qrCodeUrl = \`https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=0&data=\${encodeURIComponent(
+        inviteUrl
+      )}\`;
+      const roundRect = (x, y, w, h, r) => {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+      };
+      const clipText = (value, maxLength) => {
+        const raw = String(value || "");
+        return raw.length > maxLength ? raw.slice(0, maxLength) + "…" : raw;
+      };
+      const drawCard = (qrImage) => {
+        const gradient = ctx.createLinearGradient(0, 0, width, height);
+        gradient.addColorStop(0, "#fff5f8");
+        gradient.addColorStop(1, "#f3f4ff");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, width, height);
+        ctx.strokeStyle = "#e8dfe6";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(24, 24, width - 48, height - 48);
 
-      ctx.fillStyle = "#2f2a26";
-      ctx.textAlign = "center";
-      ctx.font = "bold 36px 'Inter', 'PingFang SC', sans-serif";
-      ctx.fillText(data.coupleName || "我们的婚礼", width / 2, 120);
+        ctx.fillStyle = "#2f2a26";
+        ctx.textAlign = "center";
+        ctx.font = \`bold 36px \${data.headingFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+        ctx.fillText(data.coupleName || "我们的婚礼", width / 2, 104);
 
-      ctx.fillStyle = "#6c5c53";
-      ctx.font = "20px 'Inter', 'PingFang SC', sans-serif";
-      ctx.fillText(data.weddingDate || "", width / 2, 190);
-      ctx.fillText(data.weddingLocation || "", width / 2, 230);
+        ctx.fillStyle = "#6c5c53";
+        ctx.font = \`20px \${data.baseFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+        ctx.fillText(data.weddingDate || "", width / 2, 160);
+        if (lunarText) {
+          ctx.fillStyle = "#87756d";
+          ctx.font = \`18px \${data.baseFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+          ctx.fillText(lunarText, width / 2, 194);
+        }
+        ctx.fillStyle = "#6c5c53";
+        ctx.font = \`20px \${data.baseFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+        ctx.fillText(data.weddingLocation || "", width / 2, lunarText ? 226 : 196);
 
-      ctx.fillStyle = "#8a7a70";
-      ctx.font = "18px 'Inter', 'PingFang SC', sans-serif";
-      const message =
-        data.heroMessage || "期待与你及亲朋的美好相聚";
-      ctx.fillText(message, width / 2, 300);
+        ctx.fillStyle = "#8a7a70";
+        ctx.font = \`17px \${data.baseFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+        const message =
+          data.heroMessage || "期待与你及亲朋的美好相聚";
+        ctx.fillText(message, width / 2, lunarText ? 258 : 232);
 
-      ctx.fillStyle = "#b7a6a0";
-      ctx.font = "16px 'Inter', 'PingFang SC', sans-serif";
-      ctx.fillText("Wedding Manager", width / 2, height - 80);
+        const guestInfoTop = lunarText ? 272 : 248;
+        const guestInfoX = 64;
+        const guestInfoWidth = width - 128;
+        const guestInfoHeight = 156;
+        ctx.save();
+        roundRect(guestInfoX, guestInfoTop, guestInfoWidth, guestInfoHeight, 18);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.shadowColor = "rgba(110, 88, 96, 0.12)";
+        ctx.shadowBlur = 14;
+        ctx.fill();
+        ctx.restore();
 
-      if (downloadButton) {
-        downloadButton.href = canvas.toDataURL("image/png");
-        downloadButton.download = "婚礼信息卡.png";
-      }
+        const qrSize = 110;
+        const qrPadding = 8;
+        const qrWrapSize = qrSize + qrPadding * 2;
+        const qrWrapX = guestInfoX + guestInfoWidth - 24 - qrWrapSize;
+        const qrWrapY = guestInfoTop + 24;
+        const qrX = qrWrapX + qrPadding;
+        const qrY = qrWrapY + qrPadding;
+        const qrCenterX = qrWrapX + qrWrapSize / 2;
+        const infoX = guestInfoX + 28;
+        const infoWidth = qrWrapX - infoX - 20;
+        const guestInfo = [
+          {
+            label: "来宾姓名",
+            value: clipText(data.guestName || "已登记来宾", 12)
+          },
+          { label: "出席人数", value: clipText(data.guestAttendees || "-", 12) },
+          {
+            label: "手机号",
+            value: clipText(data.guestPhone || "-", 16)
+          }
+        ];
+
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(197, 174, 182, 0.55)";
+        ctx.lineWidth = 1;
+        ctx.moveTo(qrWrapX - 16, guestInfoTop + 18);
+        ctx.lineTo(qrWrapX - 16, guestInfoTop + guestInfoHeight - 18);
+        ctx.stroke();
+
+        guestInfo.forEach((item, index) => {
+          const rowY = guestInfoTop + 52 + index * 34;
+          if (index > 0) {
+            ctx.beginPath();
+            ctx.strokeStyle = "rgba(205, 186, 193, 0.35)";
+            ctx.lineWidth = 1;
+            ctx.moveTo(infoX, rowY - 18);
+            ctx.lineTo(infoX + infoWidth, rowY - 18);
+            ctx.stroke();
+          }
+          ctx.textAlign = "left";
+          ctx.fillStyle = "#8f7a72";
+          ctx.font = \`15px \${data.baseFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+          ctx.fillText(item.label, infoX, rowY);
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#4b3c33";
+          ctx.font = \`bold 20px \${data.baseFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+          ctx.fillText(item.value, infoX + infoWidth, rowY);
+        });
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#8f7a72";
+        ctx.font = \`14px \${data.baseFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+        ctx.fillText("扫码回到请柬", qrCenterX, guestInfoTop + 20);
+
+        ctx.save();
+        roundRect(qrWrapX, qrWrapY, qrWrapSize, qrWrapSize, 14);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(189, 169, 160, 0.7)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+
+        if (qrImage) {
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(qrImage, qrX, qrY, qrSize, qrSize);
+          ctx.imageSmoothingEnabled = true;
+        } else {
+          ctx.strokeStyle = "rgba(197, 174, 182, 0.8)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(qrX + 0.5, qrY + 0.5, qrSize - 1, qrSize - 1);
+          ctx.fillStyle = "#aa968d";
+          ctx.font = \`13px \${data.baseFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+          ctx.fillText("二维码加载中", qrCenterX, qrWrapY + qrWrapSize / 2 + 4);
+        }
+
+        ctx.fillStyle = "#b7a6a0";
+        ctx.font = \`15px \${data.baseFont || "'Inter', 'PingFang SC', sans-serif"}\`;
+        ctx.fillText("Wedding Manager", width / 2, height - 36);
+      };
+
+      drawCard(null);
+      updateDownloadLink();
+
+      loadImage(qrCodeUrl)
+        .then((qrImage) => {
+          drawCard(qrImage);
+          updateDownloadLink();
+        })
+        .catch(() => {});
     }
   })();
 `;
 };
+
+const renderFestiveLayerScript = ({
+  cornerContainerId = "festiveCornerGroup",
+  particleContainerId = "festiveParticles"
+} = {}) => `
+    (() => {
+      const body = document.body;
+      if (!body) return;
+      const cornerContainer = document.getElementById(${JSON.stringify(
+        cornerContainerId
+      )});
+      const particleContainer = document.getElementById(${JSON.stringify(
+        particleContainerId
+      )});
+      const themeValues = [
+        "classic_red",
+        "palace_gold",
+        "garden_bloom",
+        "champagne_waltz"
+      ];
+      const styleValues = ["lantern", "petal", "confetti", "sparkle"];
+      const themeKeyRaw = String(body.dataset.festiveTheme || "classic_red")
+        .trim()
+        .toLowerCase();
+      const styleKeyRaw = String(body.dataset.festiveEffectStyle || "lantern")
+        .trim()
+        .toLowerCase();
+      const intensityKeyRaw = String(
+        body.dataset.festiveEffectIntensity || "normal"
+      )
+        .trim()
+        .toLowerCase();
+      const themeKey = themeValues.includes(themeKeyRaw)
+        ? themeKeyRaw
+        : "classic_red";
+      const styleKey = styleValues.includes(styleKeyRaw)
+        ? styleKeyRaw
+        : "lantern";
+      const countMap = { gentle: 10, normal: 16, vivid: 24 };
+      const durationMap = { gentle: 16, normal: 13, vivid: 10 };
+      const particleCount = countMap[intensityKeyRaw] || countMap.normal;
+      const baseDuration = durationMap[intensityKeyRaw] || durationMap.normal;
+      const cornerMap = {
+        classic_red: [
+          { side: "left", text: "囍", variant: "is-cn-seal" },
+          { side: "right", text: "囍", variant: "is-cn-seal" }
+        ],
+        palace_gold: [
+          { side: "left", text: "瑞", variant: "is-cn-seal" },
+          { side: "right", text: "禧", variant: "is-cn-seal" }
+        ],
+        garden_bloom: [
+          { side: "left", text: "❀", variant: "is-floral" },
+          { side: "right", text: "❁", variant: "is-floral" }
+        ],
+        champagne_waltz: [
+          { side: "left", text: "✦", variant: "is-western" },
+          { side: "right", text: "♡", variant: "is-western" }
+        ]
+      };
+      if (cornerContainer) {
+        cornerContainer.innerHTML = "";
+        const corners = cornerMap[themeKey] || cornerMap.classic_red;
+        corners.forEach((item) => {
+          const node = document.createElement("span");
+          node.className = (
+            "festive-corner festive-corner-" +
+            item.side +
+            " " +
+            (item.variant || "")
+          ).trim();
+          node.textContent = item.text;
+          cornerContainer.appendChild(node);
+        });
+      }
+      if (!particleContainer) return;
+      if (body.dataset.festiveEffectEnabled !== "true") return;
+      if (
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        return;
+      }
+      const symbolMap = {
+        classic_red: {
+          lantern: ["囍", "福", "禧"],
+          petal: ["✿", "❀", "❁"],
+          confetti: ["●", "◆", "■"],
+          sparkle: ["✦", "✧", "★"]
+        },
+        palace_gold: {
+          lantern: ["瑞", "禧", "锦"],
+          petal: ["✽", "❀", "✿"],
+          confetti: ["◆", "■", "●"],
+          sparkle: ["✦", "✧", "✶"]
+        },
+        garden_bloom: {
+          lantern: ["❀", "❁", "❃"],
+          petal: ["✿", "❀", "❁"],
+          confetti: ["●", "◆", "■"],
+          sparkle: ["✦", "✧", "✶"]
+        },
+        champagne_waltz: {
+          lantern: ["♡", "✦", "❦"],
+          petal: ["❁", "✽", "✿"],
+          confetti: ["●", "◆", "■"],
+          sparkle: ["✦", "✧", "★"]
+        }
+      };
+      const sizeMap = { lantern: 24, petal: 20, confetti: 14, sparkle: 16 };
+      const themeSymbolMap = symbolMap[themeKey] || symbolMap.classic_red;
+      const symbols = themeSymbolMap[styleKey] || themeSymbolMap.lantern;
+      const baseSize = sizeMap[styleKey] || sizeMap.lantern;
+      particleContainer.innerHTML = "";
+      for (let index = 0; index < particleCount; index += 1) {
+        const node = document.createElement("span");
+        node.className = (
+          "festive-particle festive-particle-" + styleKey
+        ).trim();
+        node.textContent = symbols[Math.floor(Math.random() * symbols.length)];
+        node.style.setProperty(
+          "--particle-x",
+          String(Math.round(Math.random() * 100)) + "%"
+        );
+        node.style.setProperty(
+          "--particle-drift",
+          String(Math.round(Math.random() * 90 - 45)) + "px"
+        );
+        node.style.setProperty(
+          "--particle-size",
+          (baseSize + Math.random() * 10).toFixed(1) + "px"
+        );
+        node.style.setProperty(
+          "--particle-duration",
+          (baseDuration + Math.random() * 8).toFixed(2) + "s"
+        );
+        node.style.setProperty(
+          "--particle-delay",
+          (-Math.random() * (baseDuration + 6)).toFixed(2) + "s"
+        );
+        node.style.setProperty(
+          "--particle-rotate",
+          String(Math.round(Math.random() * 360 - 180)) + "deg"
+        );
+        node.style.setProperty(
+          "--particle-opacity",
+          (0.35 + Math.random() * 0.4).toFixed(2)
+        );
+        node.style.setProperty(
+          "--particle-hue",
+          String(Math.round(Math.random() * 36 + 2))
+        );
+        particleContainer.appendChild(node);
+      }
+    })();
+`;
 
 const attendeePickerScript = `
   (() => {
@@ -636,11 +1369,15 @@ const adminLayout = (title, body) => `
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${escapeHtml(title)}</title>
+    ${renderFaviconLinks()}
     <link rel="stylesheet" href="/public/css/main.css" />
   </head>
   <body>
     <header class="top-bar">
-      <div class="brand">Wedding Manager</div>
+      <div class="brand">
+        <img src="${SITE_LOGO_ICON_PATH}" alt="" />
+        <span>Wedding Manager</span>
+      </div>
     <nav class="nav-links">
       <a href="/admin">仪表盘</a>
       <a href="/admin/invitation">请柬设计</a>
@@ -670,10 +1407,15 @@ const renderLogin = (error) => `
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>管理员登录</title>
+    ${renderFaviconLinks()}
     <link rel="stylesheet" href="/public/css/main.css" />
   </head>
   <body class="auth-body">
     <div class="auth-card">
+      <div class="auth-brand">
+        <img src="${SITE_LOGO_ICON_PATH}" alt="" />
+        <span>Wedding Manager</span>
+      </div>
       <h1>婚礼后台登录</h1>
       <p class="muted">默认账号：admin / admin123</p>
       ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
@@ -911,6 +1653,107 @@ ${success ? `<div class="alert" style="background:#e9f7ef;color:#2f8f5f;">${esca
   );
 
 const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
+  const heroOverlayEnabled = settings?.hero_overlay_enabled !== false;
+  const heroOverlayColor = normalizeHexColor(
+    settings?.hero_overlay_color,
+    "#000000"
+  );
+  const heroOverlayOpacity = clampNumber(
+    settings?.hero_overlay_opacity,
+    0,
+    1,
+    0.6
+  );
+  const heroTextColor = normalizeHexColor(settings?.hero_text_color, "#ffffff");
+  const heroNamePosition = normalizeHeroNamePosition(
+    settings?.hero_name_position,
+    "near_message"
+  );
+  const lunarDateEnabled = settings?.lunar_date_enabled === true;
+  const inviteFontBase = normalizeInviteFont(settings?.invite_font_base, "system");
+  const inviteFontHeading = normalizeInviteFont(
+    settings?.invite_font_heading,
+    "songti"
+  );
+  const inviteFontCouple = normalizeInviteFont(
+    settings?.invite_font_couple,
+    "kaiti"
+  );
+  const inviteFontCountdown = normalizeInviteFont(
+    settings?.invite_font_countdown,
+    "heiti"
+  );
+  const textAnimationEnabled = settings?.text_animation_enabled !== false;
+  const textAnimationStyle = normalizeTextAnimationStyle(
+    settings?.text_animation_style,
+    "fade_up"
+  );
+  const textAnimationDuration = clampNumber(
+    settings?.text_animation_duration,
+    0.3,
+    3,
+    0.9
+  );
+  const textAnimationStaggerMs = Math.round(
+    clampNumber(settings?.text_animation_stagger_ms, 0, 500, 120)
+  );
+  const textAnimationRepeat = settings?.text_animation_repeat === true;
+  const countdownEnabled = settings?.countdown_enabled !== false;
+  const countdownShowHome = settings?.countdown_show_home !== false;
+  const countdownShowSuccess = settings?.countdown_show_success !== false;
+  const countdownTargetAt = formatDateTimeLocalInput(settings?.countdown_target_at);
+  const countdownLabel =
+    String(settings?.countdown_label || "").trim() || "婚礼倒计时";
+  const countdownTheme = normalizeCountdownTheme(
+    settings?.countdown_theme,
+    "glass"
+  );
+  const countdownBgColor = normalizeHexColor(
+    settings?.countdown_bg_color,
+    "#ffffff"
+  );
+  const countdownTextColor = normalizeHexColor(
+    settings?.countdown_text_color,
+    "#4b3c33"
+  );
+  const countdownAccentColor = normalizeHexColor(
+    settings?.countdown_accent_color,
+    "#d68aa1"
+  );
+  const countdownOpacity = clampNumber(settings?.countdown_opacity, 0.2, 1, 0.9);
+  const countdownHomePosition = normalizeCountdownPosition(
+    settings?.countdown_home_position,
+    "top-right"
+  );
+  const countdownSuccessPosition = normalizeCountdownPosition(
+    settings?.countdown_success_position,
+    "top-right"
+  );
+  const festiveTheme = normalizeFestiveTheme(
+    settings?.festive_theme,
+    "classic_red"
+  );
+  const festiveEffectEnabled = settings?.festive_effect_enabled !== false;
+  const festiveEffectStyle = normalizeFestiveEffectStyle(
+    settings?.festive_effect_style,
+    "lantern"
+  );
+  const festiveEffectIntensity = normalizeFestiveEffectIntensity(
+    settings?.festive_effect_intensity,
+    "normal"
+  );
+  const swipeHintEnabled = settings?.swipe_hint_enabled !== false;
+  const swipeHintText =
+    String(settings?.swipe_hint_text || "").trim() || "上滑查看下一页";
+  const swipeHintPosition = normalizeSwipeHintPosition(
+    settings?.swipe_hint_position,
+    "bottom-center"
+  );
+  const swipeHintStyle = normalizeSwipeHintStyle(
+    settings?.swipe_hint_style,
+    "soft_glow"
+  );
+  const qrForceHttps = settings?.qr_force_https !== false;
   const orderedGuestFields = getOrderedGuestCollectionFields({ settings, fields });
   const routeImageUrls = getWeddingRouteImageUrls(settings);
   const orderedFieldKeysValue = orderedGuestFields
@@ -1057,84 +1900,512 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
 
 <section class="card">
   <h1>请柬基础信息</h1>
-  <form method="post" action="/admin/invitation/settings" class="form-grid">
-    <label>
-      新人姓名
-      <input type="text" name="couple_name" value="${escapeHtml(
-        settings.couple_name || ""
-      )}" />
-    </label>
-    <label>
-      婚礼日期
-      <input type="text" name="wedding_date" value="${escapeHtml(
-        settings.wedding_date || ""
-      )}" />
-    </label>
-    <label>
-      婚礼地点
-      <input type="text" name="wedding_location" value="${escapeHtml(
-        settings.wedding_location || ""
-      )}" />
-    </label>
-    <label class="full">
-      婚礼地点地图超链接（可选）
-      <input type="url" name="wedding_location_map_url" value="${escapeHtml(
-        settings.wedding_location_map_url || ""
-      )}" placeholder="如 https://maps.google.com/?q=海滨花园宴会厅" />
-    </label>
-    <p class="muted full">前台点击“地图导航”后会弹出地图应用选择（Google Maps / 高德地图 / 百度地图），并附带此自定义链接。</p>
-    <label class="full">
-      地图导航实景路线图（每行一个 URL）
-      <textarea id="weddingRouteImageUrls" name="wedding_route_image_urls" rows="3" placeholder="如：https://example.com/route-1.jpg">${escapeHtml(
-        routeImageUrls.join("\n")
-      )}</textarea>
-    </label>
-    <div
-      class="full image-upload-box"
-      data-image-upload-box
-      data-target-input="weddingRouteImageUrls"
-      data-target-mode="append-lines"
-      data-upload-multiple="true"
-    >
-      <label>
-        上传实景路线图（可多选）
-        <input type="file" accept="image/*" multiple data-image-upload-file />
-      </label>
-      <div class="inline-actions">
-        <button class="btn ghost" type="button" data-image-upload-button>上传并追加到列表</button>
-        <span class="muted" data-image-upload-status>可上传多张，提交设置后会展示在来宾地图弹窗中。</span>
+  <form method="post" action="/admin/invitation/settings" class="form-grid invitation-settings-form">
+    <div class="full invitation-settings-group" data-settings-group="basic">
+      <div class="invitation-settings-head">
+        <h3>基础信息</h3>
+        <p>先配置婚礼核心信息与二维码链接策略，确保对外分享口径一致。</p>
+      </div>
+      <div class="invitation-settings-grid">
+        <label>
+          新人姓名
+          <input type="text" name="couple_name" value="${escapeHtml(
+            settings.couple_name || ""
+          )}" />
+        </label>
+        <label>
+          婚礼日期
+          <input type="text" name="wedding_date" value="${escapeHtml(
+            settings.wedding_date || ""
+          )}" />
+        </label>
+        <label class="full">
+          婚礼地点
+          <input type="text" name="wedding_location" value="${escapeHtml(
+            settings.wedding_location || ""
+          )}" />
+        </label>
+        <div class="field-required-wrap full">
+          <label class="required-switch" for="lunarDateEnabled">
+            <span>显示农历日期</span>
+            <input type="checkbox" id="lunarDateEnabled" name="lunar_date_enabled" ${
+              lunarDateEnabled ? "checked" : ""
+            } />
+          </label>
+          <p class="muted">开启后，婚礼日期等时间信息会额外显示一行中国农历日期。</p>
+        </div>
+        <div class="field-required-wrap full">
+          <label class="required-switch" for="qrForceHttps">
+            <span>二维码链接强制使用 HTTPS</span>
+            <input type="checkbox" id="qrForceHttps" name="qr_force_https" ${
+              qrForceHttps ? "checked" : ""
+            } />
+          </label>
+          <p class="muted">默认开启。开启后，后台与婚礼信息卡中的二维码会优先使用 https:// 域名（localhost 本地调试除外）。</p>
+        </div>
       </div>
     </div>
-    ${routeImagePreviewHtml}
-    <label class="full">
-      头图文案
-      <input type="text" name="hero_message" value="${escapeHtml(
-        settings.hero_message || ""
-      )}" />
-    </label>
-    <label class="full">
-      头图背景图 URL
-      <input type="text" id="inviteHeroImageUrl" name="hero_image_url" value="${escapeHtml(
-        settings.hero_image_url || ""
-      )}" />
-    </label>
-    <div class="full image-upload-box" data-image-upload-box data-target-input="inviteHeroImageUrl">
-      <label>
-        上传头图背景图
-        <input type="file" accept="image/*" data-image-upload-file />
-      </label>
-      <div class="inline-actions">
-        <button class="btn ghost" type="button" data-image-upload-button>上传并填入 URL</button>
-        <span class="muted" data-image-upload-status>支持 JPG/PNG/WebP/GIF，建议横图。</span>
+
+    <div class="full invitation-settings-group" data-settings-group="festive">
+      <div class="invitation-settings-head">
+        <h3>喜庆主题与动画</h3>
+        <p>首页、分屏页和签到页会共用这一套视觉主题。可按中式或西式氛围切换。</p>
+      </div>
+      <div class="invitation-settings-grid">
+        <label>
+          喜庆主题风格
+          <select name="festive_theme">
+            ${festiveThemeOptions
+              .map((option) => {
+                const selected = festiveTheme === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <div class="field-required-wrap">
+          <label class="required-switch" for="festiveEffectEnabled">
+            <span>启用喜庆动态元素</span>
+            <input type="checkbox" id="festiveEffectEnabled" name="festive_effect_enabled" ${
+              festiveEffectEnabled ? "checked" : ""
+            } />
+          </label>
+          <p class="muted">将在首页、分屏与签到页面加入漂浮装饰动画，营造更热闹的现场感。</p>
+        </div>
+        <label>
+          动态元素样式
+          <select name="festive_effect_style">
+            ${festiveEffectStyleOptions
+              .map((option) => {
+                const selected = festiveEffectStyle === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <label>
+          动画热闹程度
+          <select name="festive_effect_intensity">
+            ${festiveEffectIntensityOptions
+              .map((option) => {
+                const selected =
+                  festiveEffectIntensity === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <p class="muted full">建议：移动端首选“轻柔/标准”，现场大屏可选“热闹”增强节庆氛围。</p>
       </div>
     </div>
-    <label>
-      来宾页面字号放大倍数
-      <input type="number" name="guest_font_scale" min="1" max="2.5" step="0.1" value="${escapeHtml(
-        settings.guest_font_scale || "1.1"
-      )}" />
-    </label>
-    <button class="btn primary" type="submit">保存设置</button>
+
+    <div class="full invitation-settings-group" data-settings-group="hero">
+      <div class="invitation-settings-head">
+        <h3>头图与视觉</h3>
+        <p>决定请柬首页第一印象，包括文案、主视觉、姓名排版和遮罩可读性。</p>
+      </div>
+      <div class="invitation-settings-grid">
+        <label class="full">
+          头图文案
+          <input type="text" name="hero_message" value="${escapeHtml(
+            settings.hero_message || ""
+          )}" />
+        </label>
+        <label class="full">
+          头图背景图 URL
+          <input type="text" id="inviteHeroImageUrl" name="hero_image_url" value="${escapeHtml(
+            settings.hero_image_url || ""
+          )}" />
+        </label>
+        <div class="full image-upload-box" data-image-upload-box data-target-input="inviteHeroImageUrl">
+          <label>
+            上传头图背景图
+            <input type="file" accept="image/*" data-image-upload-file />
+          </label>
+          <div class="inline-actions">
+            <button class="btn ghost" type="button" data-image-upload-button>上传并填入 URL</button>
+            <span class="muted" data-image-upload-status>支持 JPG/PNG/WebP/GIF，建议横图。</span>
+          </div>
+        </div>
+        <label>
+          新人姓名位置
+          <select name="hero_name_position">
+            <option value="near_message" ${
+              heroNamePosition === "near_message" ? "selected" : ""
+            }>贴近下方文案</option>
+            <option value="top" ${
+              heroNamePosition === "top" ? "selected" : ""
+            }>页面最上方</option>
+            <option value="center" ${
+              heroNamePosition === "center" ? "selected" : ""
+            }>页面居中</option>
+          </select>
+        </label>
+        <label>
+          头图文字颜色
+          <input type="color" name="hero_text_color" value="${escapeHtml(
+            heroTextColor
+          )}" />
+        </label>
+        <p class="muted full">可将“新人姓名”贴近文案、放在页面顶部，或置于页面中间。</p>
+        <div class="field-required-wrap full">
+          <label class="required-switch" for="heroOverlayEnabled">
+            <span>启用头图半透明遮罩</span>
+            <input type="checkbox" id="heroOverlayEnabled" name="hero_overlay_enabled" ${
+              heroOverlayEnabled ? "checked" : ""
+            } />
+          </label>
+          <p class="muted">关闭后将不再渲染遮罩层。</p>
+        </div>
+        <label>
+          遮罩颜色
+          <input type="color" name="hero_overlay_color" value="${escapeHtml(
+            heroOverlayColor
+          )}" />
+        </label>
+        <label>
+          遮罩不透明度（0~1）
+          <input type="number" name="hero_overlay_opacity" min="0" max="1" step="0.05" value="${escapeHtml(
+            heroOverlayOpacity.toFixed(2)
+          )}" />
+        </label>
+        <p class="muted full">当背景图较复杂或偏暗时，可开启遮罩并调节颜色与透明度，提升顶部文字可读性。</p>
+      </div>
+    </div>
+
+    <div class="full invitation-settings-group" data-settings-group="fonts">
+      <div class="invitation-settings-head">
+        <h3>文字字体</h3>
+        <p>支持 iOS / Android 原生字库组合，可分别设置正文、标题、新人姓名和倒计时字体。</p>
+      </div>
+      <div class="invitation-settings-grid">
+        <label>
+          全局正文字体
+          <select name="invite_font_base">
+            ${inviteFontOptions
+              .map((option) => {
+                const selected = inviteFontBase === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <label>
+          标题字体（分屏标题/表单标题）
+          <select name="invite_font_heading">
+            ${inviteFontOptions
+              .map((option) => {
+                const selected =
+                  inviteFontHeading === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <label>
+          新人姓名字体
+          <select name="invite_font_couple">
+            ${inviteFontOptions
+              .map((option) => {
+                const selected = inviteFontCouple === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <label>
+          倒计时字体
+          <select name="invite_font_countdown">
+            ${inviteFontOptions
+              .map((option) => {
+                const selected =
+                  inviteFontCountdown === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="full invitation-settings-group" data-settings-group="text-animation">
+      <div class="invitation-settings-head">
+        <h3>文字动效</h3>
+        <p>控制首页和分屏文案的滚动入场方式，强化请柬节奏感。</p>
+      </div>
+      <div class="invitation-settings-grid">
+        <div class="field-required-wrap full">
+          <label class="required-switch" for="textAnimationEnabled">
+            <span>启用文字动效</span>
+            <input type="checkbox" id="textAnimationEnabled" name="text_animation_enabled" ${
+              textAnimationEnabled ? "checked" : ""
+            } />
+          </label>
+          <label class="inline">
+            <input type="checkbox" name="text_animation_repeat" ${
+              textAnimationRepeat ? "checked" : ""
+            } />
+            滚动离开后允许再次播放动效
+          </label>
+        </div>
+        <label>
+          动效风格
+          <select name="text_animation_style">
+            ${textAnimationOptions
+              .map((option) => {
+                const selected =
+                  textAnimationStyle === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <label>
+          动效时长（秒）
+          <input type="number" name="text_animation_duration" min="0.3" max="3" step="0.1" value="${escapeHtml(
+            textAnimationDuration.toFixed(1)
+          )}" />
+        </label>
+        <label>
+          动效错峰间隔（毫秒）
+          <input type="number" name="text_animation_stagger_ms" min="0" max="500" step="10" value="${escapeHtml(
+            String(textAnimationStaggerMs)
+          )}" />
+        </label>
+      </div>
+    </div>
+
+    <div class="full invitation-settings-group" data-settings-group="swipe-hint">
+      <div class="invitation-settings-head">
+        <h3>首页上滑提示</h3>
+        <p>在首页温和提示宾客“上滑查看下一页”，支持自定义文案、位置和样式。</p>
+      </div>
+      <div class="invitation-settings-grid">
+        <div class="field-required-wrap full">
+          <label class="required-switch" for="swipeHintEnabled">
+            <span>启用上滑提示动画</span>
+            <input type="checkbox" id="swipeHintEnabled" name="swipe_hint_enabled" ${
+              swipeHintEnabled ? "checked" : ""
+            } />
+          </label>
+          <p class="muted">建议保持开启，首次查看时可更自然地引导宾客浏览下一个分屏。</p>
+        </div>
+        <label>
+          提示文案
+          <input type="text" name="swipe_hint_text" value="${escapeHtml(
+            swipeHintText
+          )}" />
+        </label>
+        <label>
+          提示位置
+          <select name="swipe_hint_position">
+            ${swipeHintPositionOptions
+              .map((option) => {
+                const selected =
+                  swipeHintPosition === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <label>
+          提示样式
+          <select name="swipe_hint_style">
+            ${swipeHintStyleOptions
+              .map((option) => {
+                const selected = swipeHintStyle === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="full invitation-settings-group" data-settings-group="countdown">
+      <div class="invitation-settings-head">
+        <h3>倒计时配置</h3>
+        <p>支持首页和提交成功页展示倒计时卡片，可自定义主题、配色、透明度和位置。</p>
+      </div>
+      <div class="invitation-settings-grid">
+        <div class="field-required-wrap full">
+          <label class="required-switch" for="countdownEnabled">
+            <span>启用倒计时牌</span>
+            <input type="checkbox" id="countdownEnabled" name="countdown_enabled" ${
+              countdownEnabled ? "checked" : ""
+            } />
+          </label>
+          <label class="inline">
+            <input type="checkbox" name="countdown_show_home" ${
+              countdownShowHome ? "checked" : ""
+            } />
+            首页显示倒计时牌
+          </label>
+          <label class="inline">
+            <input type="checkbox" name="countdown_show_success" ${
+              countdownShowSuccess ? "checked" : ""
+            } />
+            提交成功页显示倒计时牌
+          </label>
+        </div>
+        <label>
+          倒计时目标时间
+          <input type="datetime-local" name="countdown_target_at" value="${escapeHtml(
+            countdownTargetAt
+          )}" />
+        </label>
+        <p class="muted full">若留空，前台会尝试根据“婚礼日期”自动解析倒计时目标时间。</p>
+        <label>
+          倒计时标题文案
+          <input type="text" name="countdown_label" value="${escapeHtml(
+            countdownLabel
+          )}" />
+        </label>
+        <label>
+          倒计时主题
+          <select name="countdown_theme">
+            ${countdownThemeOptions
+              .map((option) => {
+                const selected = countdownTheme === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <label>
+          倒计时卡片不透明度（0.2~1）
+          <input type="number" name="countdown_opacity" min="0.2" max="1" step="0.05" value="${escapeHtml(
+            countdownOpacity.toFixed(2)
+          )}" />
+        </label>
+        <label>
+          倒计时背景色
+          <input type="color" name="countdown_bg_color" value="${escapeHtml(
+            countdownBgColor
+          )}" />
+        </label>
+        <label>
+          倒计时文字色
+          <input type="color" name="countdown_text_color" value="${escapeHtml(
+            countdownTextColor
+          )}" />
+        </label>
+        <label>
+          倒计时强调色
+          <input type="color" name="countdown_accent_color" value="${escapeHtml(
+            countdownAccentColor
+          )}" />
+        </label>
+        <label>
+          首页倒计时位置
+          <select name="countdown_home_position">
+            ${countdownPositionOptions
+              .map((option) => {
+                const selected =
+                  countdownHomePosition === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+        <label>
+          成功页倒计时位置
+          <select name="countdown_success_position">
+            ${countdownPositionOptions
+              .map((option) => {
+                const selected =
+                  countdownSuccessPosition === option.value ? "selected" : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="full invitation-settings-group" data-settings-group="map-route">
+      <div class="invitation-settings-head">
+        <h3>路线与地图</h3>
+        <p>配置地图超链接与实景路线图，来宾可以在请柬中快速完成导航。</p>
+      </div>
+      <div class="invitation-settings-grid">
+        <label class="full">
+          婚礼地点地图超链接（可选）
+          <input type="url" name="wedding_location_map_url" value="${escapeHtml(
+            settings.wedding_location_map_url || ""
+          )}" placeholder="如 https://maps.google.com/?q=海滨花园宴会厅" />
+        </label>
+        <p class="muted full">前台点击“地图导航”后会弹出地图应用选择（Google Maps / 高德地图 / 百度地图），并附带此自定义链接。</p>
+        <label class="full">
+          地图导航实景路线图（每行一个 URL）
+          <textarea id="weddingRouteImageUrls" name="wedding_route_image_urls" rows="3" placeholder="如：https://example.com/route-1.jpg">${escapeHtml(
+            routeImageUrls.join("\n")
+          )}</textarea>
+        </label>
+        <div
+          class="full image-upload-box"
+          data-image-upload-box
+          data-target-input="weddingRouteImageUrls"
+          data-target-mode="append-lines"
+          data-upload-multiple="true"
+        >
+          <label>
+            上传实景路线图（可多选）
+            <input type="file" accept="image/*" multiple data-image-upload-file />
+          </label>
+          <div class="inline-actions">
+            <button class="btn ghost" type="button" data-image-upload-button>上传并追加到列表</button>
+            <span class="muted" data-image-upload-status>可上传多张，提交设置后会展示在来宾地图弹窗中。</span>
+          </div>
+        </div>
+        ${routeImagePreviewHtml}
+      </div>
+    </div>
+
+    <div class="full invitation-settings-group" data-settings-group="others">
+      <div class="invitation-settings-head">
+        <h3>其他显示设置</h3>
+        <p>统一调节来宾端阅读大小，方便不同年龄层在手机上查看请柬。</p>
+      </div>
+      <div class="invitation-settings-grid">
+        <label>
+          来宾页面字号放大倍数
+          <input type="number" name="guest_font_scale" min="1" max="2.5" step="0.1" value="${escapeHtml(
+            settings.guest_font_scale || "1.1"
+          )}" />
+        </label>
+      </div>
+    </div>
+
+    <div class="full invitation-settings-submit">
+      <button class="btn primary" type="submit">保存设置</button>
+    </div>
   </form>
 </section>
 
@@ -1174,6 +2445,7 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
 
 <section class="card">
   <h2>请柬页面分屏</h2>
+  <p class="muted">每个分屏可单独设置背景图显示模式，适配横图、竖图、纹理图等不同素材。</p>
   <form method="post" action="/admin/invitation/sections" class="form-grid">
     <label>
       排序
@@ -1190,6 +2462,19 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
     <label class="full">
       图片 URL
       <input type="text" id="sectionImageUrlNew" name="image_url" />
+    </label>
+    <label>
+      背景模式
+      <select name="background_mode">
+        ${sectionBackgroundModeOptions
+          .map(
+            (option) =>
+              `<option value="${escapeHtml(option.value)}">${escapeHtml(
+                option.label
+              )}</option>`
+          )
+          .join("")}
+      </select>
     </label>
     <div class="full image-upload-box" data-image-upload-box data-target-input="sectionImageUrlNew">
       <label>
@@ -1210,7 +2495,11 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
     <div class="list-item invitation-section-item">
       <div class="section-editor-head">
         <strong>分屏 #${escapeHtml(section.id)}</strong>
-        <span class="muted">当前排序：${escapeHtml(section.sort_order)}</span>
+        <span class="muted">当前排序：${escapeHtml(
+          section.sort_order
+        )} ｜ 背景模式：${escapeHtml(
+          getSectionBackgroundModeLabel(section.background_mode)
+        )}</span>
       </div>
       <form method="post" action="/admin/invitation/sections/${section.id}/update" class="form-grid section-editor-form">
         <label>
@@ -1238,6 +2527,25 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
           )}" name="image_url" value="${escapeHtml(
             section.image_url || ""
           )}" />
+        </label>
+        <label>
+          背景模式
+          <select name="background_mode">
+            ${sectionBackgroundModeOptions
+              .map((option) => {
+                const selected =
+                  normalizeSectionBackgroundMode(
+                    section.background_mode,
+                    "cover"
+                  ) === option.value
+                    ? "selected"
+                    : "";
+                return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(
+                  option.label
+                )}</option>`;
+              })
+              .join("")}
+          </select>
         </label>
         <div class="full image-upload-box" data-image-upload-box data-target-input="sectionImageUrl-${escapeHtml(
           section.id
@@ -1365,6 +2673,66 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
           };
           reader.readAsDataURL(file);
         });
+      }
+
+      const invitationSettingsForm = document.querySelector(
+        "form.invitation-settings-form"
+      );
+      if (invitationSettingsForm) {
+        const bindToggleGroup = (toggleName, dependentNames) => {
+          const toggle = invitationSettingsForm.querySelector(
+            '[name="' + toggleName + '"]'
+          );
+          if (!toggle) return;
+          const nodes = dependentNames
+            .map((name) =>
+              invitationSettingsForm.querySelector('[name="' + name + '"]')
+            )
+            .filter(Boolean);
+          const refresh = () => {
+            const enabled = toggle.checked;
+            nodes.forEach((node) => {
+              node.disabled = !enabled;
+              const wrapper = node.closest("label");
+              if (wrapper) wrapper.classList.toggle("is-disabled", !enabled);
+            });
+          };
+          toggle.addEventListener("change", refresh);
+          refresh();
+        };
+
+        bindToggleGroup("hero_overlay_enabled", [
+          "hero_overlay_color",
+          "hero_overlay_opacity"
+        ]);
+        bindToggleGroup("text_animation_enabled", [
+          "text_animation_repeat",
+          "text_animation_style",
+          "text_animation_duration",
+          "text_animation_stagger_ms"
+        ]);
+        bindToggleGroup("swipe_hint_enabled", [
+          "swipe_hint_text",
+          "swipe_hint_position",
+          "swipe_hint_style"
+        ]);
+        bindToggleGroup("countdown_enabled", [
+          "countdown_show_home",
+          "countdown_show_success",
+          "countdown_target_at",
+          "countdown_label",
+          "countdown_theme",
+          "countdown_opacity",
+          "countdown_bg_color",
+          "countdown_text_color",
+          "countdown_accent_color",
+          "countdown_home_position",
+          "countdown_success_position"
+        ]);
+        bindToggleGroup("festive_effect_enabled", [
+          "festive_effect_style",
+          "festive_effect_intensity"
+        ]);
       }
 
       const readFileAsDataUrl = (file) =>
@@ -2454,9 +3822,14 @@ const renderTablePrint = ({ tables, guests }) => {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>桌号打印</title>
+    ${renderFaviconLinks()}
     <link rel="stylesheet" href="/public/css/main.css" />
   </head>
   <body class="print-body">
+    <div class="print-logo">
+      <img src="${SITE_LOGO_ICON_PATH}" alt="" />
+      <span>Wedding Manager</span>
+    </div>
     <div class="print-actions">
       <button class="btn primary" type="button" onclick="window.print()">一键打印</button>
       <a class="btn ghost" href="/admin/guests">返回来宾管理</a>
@@ -2841,9 +4214,181 @@ const renderAdminCheckins = ({
   );
 };
 
-const renderInvite = ({ settings, sections, fields, submitted }) => {
+const renderInvite = ({ settings, sections, fields, submitted, submittedGuest }) => {
+  const isSubmitted = String(submitted) === "1";
   const guestFontScale = clampNumber(settings?.guest_font_scale, 1, 2.5, 1.1);
   const inviteMusicUrl = settings?.invitation_music_url || "";
+  const rawWeddingDate = String(settings?.wedding_date || "").trim();
+  const lunarDateEnabled = settings?.lunar_date_enabled === true;
+  const heroOverlayEnabled = settings?.hero_overlay_enabled !== false;
+  const heroOverlayColor = normalizeHexColor(
+    settings?.hero_overlay_color,
+    "#000000"
+  );
+  const heroOverlayOpacity = clampNumber(
+    settings?.hero_overlay_opacity,
+    0,
+    1,
+    0.6
+  );
+  const heroTextColor = normalizeHexColor(settings?.hero_text_color, "#ffffff");
+  const heroNamePosition = normalizeHeroNamePosition(
+    settings?.hero_name_position,
+    "near_message"
+  );
+  const inviteFontBaseKey = normalizeInviteFont(settings?.invite_font_base, "system");
+  const inviteFontHeadingKey = normalizeInviteFont(
+    settings?.invite_font_heading,
+    "songti"
+  );
+  const inviteFontCoupleKey = normalizeInviteFont(
+    settings?.invite_font_couple,
+    "kaiti"
+  );
+  const inviteFontCountdownKey = normalizeInviteFont(
+    settings?.invite_font_countdown,
+    "heiti"
+  );
+  const inviteFontBaseStack = getInviteFontStack(inviteFontBaseKey, "system");
+  const inviteFontHeadingStack = getInviteFontStack(
+    inviteFontHeadingKey,
+    "songti"
+  );
+  const inviteFontCoupleStack = getInviteFontStack(inviteFontCoupleKey, "kaiti");
+  const inviteFontCountdownStack = getInviteFontStack(
+    inviteFontCountdownKey,
+    "heiti"
+  );
+  const inviteFontPresetMap = inviteFontOptions.reduce((acc, option) => {
+    acc[option.value] = option.stack;
+    return acc;
+  }, {});
+  const textAnimationEnabled = settings?.text_animation_enabled !== false;
+  const textAnimationStyle = normalizeTextAnimationStyle(
+    settings?.text_animation_style,
+    "fade_up"
+  );
+  const textAnimationDuration = clampNumber(
+    settings?.text_animation_duration,
+    0.3,
+    3,
+    0.9
+  );
+  const textAnimationStaggerMs = Math.round(
+    clampNumber(settings?.text_animation_stagger_ms, 0, 500, 120)
+  );
+  const textAnimationRepeat = settings?.text_animation_repeat === true;
+  const countdownEnabled = settings?.countdown_enabled !== false;
+  const countdownShowHome = settings?.countdown_show_home !== false;
+  const countdownShowSuccess = settings?.countdown_show_success !== false;
+  const countdownTargetAt = fallbackCountdownTarget(settings);
+  const hasCountdownTarget = Boolean(countdownTargetAt);
+  const countdownLabel =
+    String(settings?.countdown_label || "").trim() || "婚礼倒计时";
+  const countdownTheme = normalizeCountdownTheme(
+    settings?.countdown_theme,
+    "glass"
+  );
+  const countdownBgColor = normalizeHexColor(
+    settings?.countdown_bg_color,
+    "#ffffff"
+  );
+  const countdownTextColor = normalizeHexColor(
+    settings?.countdown_text_color,
+    "#4b3c33"
+  );
+  const countdownAccentColor = normalizeHexColor(
+    settings?.countdown_accent_color,
+    "#d68aa1"
+  );
+  const countdownOpacity = clampNumber(settings?.countdown_opacity, 0.2, 1, 0.9);
+  const countdownHomePosition = normalizeCountdownPosition(
+    settings?.countdown_home_position,
+    "top-right"
+  );
+  const countdownSuccessPosition = normalizeCountdownPosition(
+    settings?.countdown_success_position,
+    "top-right"
+  );
+  const festiveTheme = normalizeFestiveTheme(
+    settings?.festive_theme,
+    "classic_red"
+  );
+  const festiveEffectEnabled = settings?.festive_effect_enabled !== false;
+  const festiveEffectStyle = normalizeFestiveEffectStyle(
+    settings?.festive_effect_style,
+    "lantern"
+  );
+  const festiveEffectIntensity = normalizeFestiveEffectIntensity(
+    settings?.festive_effect_intensity,
+    "normal"
+  );
+  const swipeHintEnabled = settings?.swipe_hint_enabled !== false;
+  const swipeHintText =
+    String(settings?.swipe_hint_text || "").trim() || "上滑查看下一页";
+  const swipeHintPosition = normalizeSwipeHintPosition(
+    settings?.swipe_hint_position,
+    "bottom-center"
+  );
+  const swipeHintStyle = normalizeSwipeHintStyle(
+    settings?.swipe_hint_style,
+    "soft_glow"
+  );
+  const invitePageTitle = buildPublicPageTitle(settings, "婚礼请柬");
+  const renderCountdownCard = ({ scopeClass, positionClass }) => {
+    if (!countdownEnabled || !hasCountdownTarget) return "";
+    return `<div class="countdown-card countdown-theme-${escapeHtml(
+      countdownTheme
+    )} ${escapeHtml(scopeClass)} countdown-pos-${escapeHtml(
+      positionClass
+    )}" data-countdown-target="${escapeHtml(countdownTargetAt)}">
+      <div class="countdown-title">${escapeHtml(countdownLabel)}</div>
+      ${
+        lunarDateEnabled
+          ? `<div class="countdown-lunar-date" data-lunar-raw="${escapeHtml(
+              countdownTargetAt
+            )}" hidden></div>`
+          : ""
+      }
+      <div class="countdown-grid">
+        <div class="countdown-item">
+          <span data-countdown-part="days">--</span>
+          <small>天</small>
+        </div>
+        <div class="countdown-item">
+          <span data-countdown-part="hours">--</span>
+          <small>时</small>
+        </div>
+        <div class="countdown-item">
+          <span data-countdown-part="minutes">--</span>
+          <small>分</small>
+        </div>
+        <div class="countdown-item">
+          <span data-countdown-part="seconds">--</span>
+          <small>秒</small>
+        </div>
+      </div>
+      <div class="countdown-finished" data-countdown-finished hidden>今天就是婚礼日，欢迎赴约</div>
+    </div>`;
+  };
+  const heroCountdownHtml =
+    countdownShowHome && !isSubmitted
+      ? renderCountdownCard({
+          scopeClass: "countdown-home",
+          positionClass: countdownHomePosition
+        })
+      : "";
+  const successCountdownHtml =
+    countdownShowSuccess && isSubmitted
+      ? renderCountdownCard({
+          scopeClass: "countdown-success",
+          positionClass: countdownSuccessPosition
+        })
+      : "";
+  const hasSuccessCountdown = Boolean(successCountdownHtml);
+  const heroOverlayRgb = hexToRgbTuple(heroOverlayColor, "#000000");
+  const heroTextRgb = hexToRgbTuple(heroTextColor, "#ffffff");
+  const effectiveHeroOverlayOpacity = heroOverlayEnabled ? heroOverlayOpacity : 0;
   const [coupleNameLine1, coupleNameLine2] = getCoupleNameLines(
     settings?.couple_name || ""
   );
@@ -2904,11 +4449,55 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <title>婚礼请柬</title>
+    <title>${escapeHtml(invitePageTitle)}</title>
+    <meta property="og:title" content="${escapeHtml(invitePageTitle)}" />
+    <meta name="apple-mobile-web-app-title" content="${escapeHtml(
+      invitePageTitle
+    )}" />
+    ${renderFaviconLinks()}
     <link rel="stylesheet" href="/public/css/invite.css" />
   </head>
-  <body style="--guest-font-scale: ${guestFontScale};">
+  <body
+    data-text-animation-enabled="${textAnimationEnabled ? "true" : "false"}"
+    data-text-animation-style="${escapeHtml(textAnimationStyle)}"
+    data-text-animation-repeat="${textAnimationRepeat ? "true" : "false"}"
+    data-lunar-enabled="${lunarDateEnabled ? "true" : "false"}"
+    data-festive-theme="${escapeHtml(festiveTheme)}"
+    data-festive-effect-enabled="${festiveEffectEnabled ? "true" : "false"}"
+    data-festive-effect-style="${escapeHtml(festiveEffectStyle)}"
+    data-festive-effect-intensity="${escapeHtml(festiveEffectIntensity)}"
+    data-font-base-key="${escapeHtml(inviteFontBaseKey)}"
+    data-font-heading-key="${escapeHtml(inviteFontHeadingKey)}"
+    data-font-couple-key="${escapeHtml(inviteFontCoupleKey)}"
+    data-font-countdown-key="${escapeHtml(inviteFontCountdownKey)}"
+    style="--guest-font-scale: ${guestFontScale}; --hero-text-color: ${heroTextColor}; --hero-text-color-rgb: ${heroTextRgb}; --hero-overlay-color-rgb: ${heroOverlayRgb}; --hero-overlay-opacity: ${effectiveHeroOverlayOpacity}; --invite-font-base: ${escapeHtml(
+      inviteFontBaseStack
+    )}; --invite-font-heading: ${escapeHtml(
+      inviteFontHeadingStack
+    )}; --invite-font-couple: ${escapeHtml(
+      inviteFontCoupleStack
+    )}; --invite-font-countdown: ${escapeHtml(
+      inviteFontCountdownStack
+    )}; --text-anim-duration: ${escapeHtml(
+      textAnimationDuration.toFixed(2)
+    )}s; --text-anim-stagger: ${escapeHtml(
+      String(textAnimationStaggerMs)
+    )}ms; --countdown-bg-color: ${escapeHtml(
+      countdownBgColor
+    )}; --countdown-text-color: ${escapeHtml(
+      countdownTextColor
+    )}; --countdown-accent-color: ${escapeHtml(
+      countdownAccentColor
+    )}; --countdown-card-opacity: ${escapeHtml(
+      countdownOpacity.toFixed(2)
+    )};"
+  >
     <div class="invite">
+      <div class="festive-layer" aria-hidden="true">
+        <div class="festive-ribbon"></div>
+        <div class="festive-corners" id="festiveCornerGroup"></div>
+        <div class="festive-particles" id="festiveParticles"></div>
+      </div>
       ${
         inviteMusicUrl
           ? `<button class="music-toggle" type="button" data-invite-music-toggle="true" aria-label="播放背景音乐">
@@ -2919,26 +4508,39 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
             )}" loop preload="auto"></audio>`
           : ""
       }
+      ${renderPublicLogoBadge({
+        href: "/invite",
+        className: "public-site-logo invite-site-logo"
+      })}
 
       ${
-            String(submitted) === "1"
-              ? `<div class="invite-success">
-            <div class="invite-success-text">
+            isSubmitted
+              ? `<div class="invite-success ${
+                hasSuccessCountdown
+                  ? `has-countdown countdown-success-layout-${escapeHtml(
+                      countdownSuccessPosition
+                    )}`
+                  : ""
+              }">
+            ${successCountdownHtml}
+            <div class="invite-success-text invite-text-anim" data-text-anim="true" style="--text-anim-order:2;">
               已收到您的信息，感谢祝福！<br>期待与您及亲朋在婚礼现场相见。
             </div>
-            <div class="invite-success-card">
+            <div class="invite-success-card invite-text-anim" data-text-anim="true" style="--text-anim-order:3;">
               <canvas id="inviteCardCanvas" width="720" height="480"></canvas>
             </div>
-	            <div class="invite-success-actions">
-	              <a class="btn primary" id="inviteCardDownload" href="#">下载婚礼信息卡</a>
-                ${
-                  hasMapChooser
-                    ? `<button class="btn primary" type="button" data-map-chooser-open="true">查看地图导航</button>`
-                    : ""
-                }
+	            <div class="invite-success-actions invite-text-anim" data-text-anim="true" style="--text-anim-order:4;">
+	              <a class="btn primary invite-success-main-btn" id="inviteCardDownload" href="#">下载婚礼信息卡</a>
 	            </div>
-            <div class="invite-success-note">
-              如信息填写错误，您可随时再次打开请柬链接重新填写
+              ${
+                hasMapChooser
+                  ? `<div class="invite-success-map-row invite-text-anim" data-text-anim="true" style="--text-anim-order:5;">
+                       <button class="btn primary invite-success-main-btn invite-success-map-btn" type="button" data-map-chooser-open="true">查看地图导航</button>
+                     </div>`
+                  : ""
+              }
+            <div class="invite-success-note invite-text-anim" data-text-anim="true" style="--text-anim-order:6;">
+              如填写错误，您可随时通过请柬链接重填
             </div>
           </div>`
               : `
@@ -2946,8 +4548,11 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
       <section class="hero" style="background-image: url('${escapeHtml(
         heroImageUrl
       )}')">
-        <div class="hero-overlay">
-          <h1 class="couple-name">
+        <div class="hero-overlay hero-name-position-${escapeHtml(
+          heroNamePosition
+        )}">
+          ${heroCountdownHtml}
+          <h1 class="couple-name invite-text-anim" data-text-anim="true" style="--text-anim-order:2;">
             <span>${escapeHtml(coupleNameLine1)}</span>
             ${
               coupleNameLine2
@@ -2956,38 +4561,73 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
                 : ""
             }
           </h1>
-          <p>${escapeHtml(settings.hero_message || "")}</p>
-          <div class="hero-meta">
-            <span>${escapeHtml(settings.wedding_date || "")}</span>
-            <span>${escapeHtml(settings.wedding_location || "")}</span>
-            ${
-              hasMapChooser
-                ? `<button class="hero-map-open" type="button" data-map-chooser-open="true">地图导航</button>`
-                : ""
-            }
+          <div class="hero-main-text">
+            <p class="hero-message invite-text-anim" data-text-anim="true" style="--text-anim-order:3;">${escapeHtml(
+              settings.hero_message || ""
+            )}</p>
+            <div class="hero-meta invite-text-anim" data-text-anim="true" style="--text-anim-order:4;">
+              <span>${escapeHtml(settings.wedding_date || "")}</span>
+              ${
+                lunarDateEnabled
+                  ? `<span class="hero-lunar-date" data-lunar-raw="${escapeHtml(
+                      rawWeddingDate
+                    )}" hidden></span>`
+                  : ""
+              }
+              <span>${escapeHtml(settings.wedding_location || "")}</span>
+              ${
+                hasMapChooser
+                  ? `<button class="hero-map-open" type="button" data-map-chooser-open="true">地图导航</button>`
+                  : ""
+              }
+            </div>
           </div>
+          ${
+            swipeHintEnabled
+              ? `<button class="swipe-hint swipe-hint-pos-${escapeHtml(
+                  swipeHintPosition
+                )} swipe-hint-style-${escapeHtml(
+                  swipeHintStyle
+                )}" type="button" data-swipe-hint="true">
+                  <span class="swipe-hint-text">${escapeHtml(swipeHintText)}</span>
+                  <span class="swipe-hint-arrows" aria-hidden="true">
+                    <i></i>
+                    <i></i>
+                  </span>
+                </button>`
+              : ""
+          }
         </div>
       </section>
 
       <div class="sections">
         ${sections
-          .map(
-            (section) => `
+          .map((section) => {
+            const bgStyle = getSectionBackgroundStyle(section.background_mode);
+            return `
         <section class="story" style="background-image: url('${escapeHtml(
           section.image_url || ""
-        )}')">
+        )}'); --story-bg-size: ${escapeHtml(
+              bgStyle.size
+            )}; --story-bg-repeat: ${escapeHtml(
+              bgStyle.repeat
+            )}; --story-bg-position: ${escapeHtml(bgStyle.position)};">
           <div class="story-card">
-            <h2>${escapeHtml(section.title)}</h2>
-            <p>${escapeHtml(section.body).replaceAll("\n", "<br/>")}</p>
+            <h2 class="invite-text-anim" data-text-anim="true" style="--text-anim-order:1;">${escapeHtml(
+              section.title
+            )}</h2>
+            <p class="invite-text-anim" data-text-anim="true" style="--text-anim-order:2;">${escapeHtml(
+              section.body
+            ).replaceAll("\n", "<br/>")}</p>
           </div>
-        </section>`
-          )
+        </section>`;
+          })
           .join("")}
       </div>
 
 	      <section class="rsvp" id="rsvp">
 	        <div class="rsvp-card">
-	          <h2>填写来宾信息</h2>
+	          <h2 class="invite-text-anim" data-text-anim="true" style="--text-anim-order:1;">填写来宾信息</h2>
 	          <form method="post" action="/invite/rsvp" class="form-stack">
 	            ${orderedGuestFields
                 .map((field) => {
@@ -3036,8 +4676,39 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
 	    </div>
 	  </body>
   <script>
+    (() => {
+      const presetMap = ${JSON.stringify(inviteFontPresetMap)};
+      const bodyEl = document.body;
+      if (!bodyEl) return;
+      const readKey = (name, fallback) => {
+        const value = String(bodyEl.getAttribute(name) || "")
+          .trim()
+          .toLowerCase();
+        if (!value) return fallback;
+        return Object.prototype.hasOwnProperty.call(presetMap, value)
+          ? value
+          : fallback;
+      };
+      bodyEl.style.setProperty(
+        "--invite-font-base",
+        presetMap[readKey("data-font-base-key", "system")]
+      );
+      bodyEl.style.setProperty(
+        "--invite-font-heading",
+        presetMap[readKey("data-font-heading-key", "songti")]
+      );
+      bodyEl.style.setProperty(
+        "--invite-font-couple",
+        presetMap[readKey("data-font-couple-key", "kaiti")]
+      );
+      bodyEl.style.setProperty(
+        "--invite-font-countdown",
+        presetMap[readKey("data-font-countdown-key", "heiti")]
+      );
+    })();
+
     ${attendeePickerScript}
-    ${renderInviteSuccessScript(settings, submitted)}
+    ${renderInviteSuccessScript(settings, submitted, submittedGuest)}
     (() => {
       const musicButton = document.querySelector("[data-invite-music-toggle]");
       const audio = document.getElementById("inviteMusic");
@@ -3093,6 +4764,253 @@ const renderInvite = ({ settings, sections, fields, submitted }) => {
     })();
 
     (() => {
+      const cards = Array.from(document.querySelectorAll("[data-countdown-target]"));
+      if (!cards.length) return;
+
+      const pad = (value) => String(Math.max(0, value)).padStart(2, "0");
+      const syncSuccessCountdownLayout = () => {
+        const successPanels = Array.from(
+          document.querySelectorAll(".invite-success.has-countdown")
+        );
+        successPanels.forEach((panel) => {
+          const className = panel.className || "";
+          const isTop = /countdown-success-layout-top-/.test(className);
+          if (!isTop) {
+            panel.style.removeProperty("--success-countdown-clearance");
+            return;
+          }
+          const card = panel.querySelector(".countdown-success");
+          if (!card) return;
+          const height = Math.ceil(card.getBoundingClientRect().height || 0);
+          if (height <= 0) return;
+          panel.style.setProperty(
+            "--success-countdown-clearance",
+            String(height + 28) + "px"
+          );
+        });
+      };
+      const resolveTarget = (value) => {
+        const normalized = String(value || "").trim();
+        if (!normalized) return null;
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) {
+          return new Date(normalized + ":00");
+        }
+        return new Date(normalized);
+      };
+
+      const renderCard = (card) => {
+        const target = resolveTarget(card.dataset.countdownTarget);
+        if (!target || Number.isNaN(target.getTime())) return;
+        const now = new Date();
+        const diff = target.getTime() - now.getTime();
+        const finished = diff <= 0;
+        const rest = finished ? 0 : diff;
+        const days = Math.floor(rest / (24 * 60 * 60 * 1000));
+        const hours = Math.floor((rest / (60 * 60 * 1000)) % 24);
+        const minutes = Math.floor((rest / (60 * 1000)) % 60);
+        const seconds = Math.floor((rest / 1000) % 60);
+        const updates = { days, hours, minutes, seconds };
+        Object.entries(updates).forEach(([key, value]) => {
+          const node = card.querySelector('[data-countdown-part="' + key + '"]');
+          if (node) node.textContent = key === "days" ? String(value) : pad(value);
+        });
+        const finishedNode = card.querySelector("[data-countdown-finished]");
+        if (finishedNode) {
+          finishedNode.hidden = !finished;
+        }
+      };
+
+      const tick = () => {
+        cards.forEach((card) => renderCard(card));
+      };
+
+      tick();
+      syncSuccessCountdownLayout();
+      window.__syncInviteCountdownLayout = syncSuccessCountdownLayout;
+      window.addEventListener("resize", syncSuccessCountdownLayout);
+      window.setInterval(tick, 1000);
+    })();
+
+    (() => {
+      const enabled = document.body.dataset.lunarEnabled === "true";
+      if (!enabled) return;
+      const targets = Array.from(document.querySelectorAll("[data-lunar-raw]"));
+      if (!targets.length) return;
+
+      const parseDate = (raw) => {
+        const normalized = String(raw || "").trim();
+        if (!normalized) return null;
+        const zhDateTime = normalized.match(
+          /(\d{4})年(\d{1,2})月(\d{1,2})日\s*(\d{1,2})[:：](\d{2})/
+        );
+        if (zhDateTime) {
+          return new Date(
+            Number(zhDateTime[1]),
+            Number(zhDateTime[2]) - 1,
+            Number(zhDateTime[3]),
+            Number(zhDateTime[4]),
+            Number(zhDateTime[5])
+          );
+        }
+        const zhDate = normalized.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+        if (zhDate) {
+          return new Date(
+            Number(zhDate[1]),
+            Number(zhDate[2]) - 1,
+            Number(zhDate[3]),
+            12,
+            0
+          );
+        }
+        const isoDateTime = normalized.match(
+          /(\d{4})-(\d{1,2})-(\d{1,2})[T\s](\d{1,2}):(\d{2})/
+        );
+        if (isoDateTime) {
+          return new Date(
+            Number(isoDateTime[1]),
+            Number(isoDateTime[2]) - 1,
+            Number(isoDateTime[3]),
+            Number(isoDateTime[4]),
+            Number(isoDateTime[5])
+          );
+        }
+        const isoDate = normalized.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (isoDate) {
+          return new Date(
+            Number(isoDate[1]),
+            Number(isoDate[2]) - 1,
+            Number(isoDate[3]),
+            12,
+            0
+          );
+        }
+        return new Date(normalized.replace(" ", "T"));
+      };
+
+      const toLunarLabel = (date) => {
+        if (!date || Number.isNaN(date.getTime())) return "";
+        try {
+          const lunar = new Intl.DateTimeFormat("zh-CN-u-ca-chinese", {
+            year: "numeric",
+            month: "long",
+            day: "numeric"
+          }).format(date);
+          return "农历 " + lunar;
+        } catch (error) {
+          return "";
+        }
+      };
+
+      targets.forEach((target) => {
+        const parsed = parseDate(target.dataset.lunarRaw);
+        if (!parsed || Number.isNaN(parsed.getTime())) return;
+        const label = toLunarLabel(parsed);
+        if (!label) return;
+        target.textContent = label;
+        target.hidden = false;
+      });
+
+      if (typeof window.__syncInviteCountdownLayout === "function") {
+        window.__syncInviteCountdownLayout();
+      }
+    })();
+
+    ${renderFestiveLayerScript()}
+
+    (() => {
+      const nodes = Array.from(document.querySelectorAll("[data-text-anim='true']"));
+      if (!nodes.length) return;
+      const enabled = document.body.dataset.textAnimationEnabled === "true";
+      if (!enabled) {
+        nodes.forEach((node) => node.classList.add("is-visible"));
+        return;
+      }
+      if (typeof IntersectionObserver !== "function") {
+        nodes.forEach((node) => node.classList.add("is-visible"));
+        return;
+      }
+      const repeat = document.body.dataset.textAnimationRepeat === "true";
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("is-visible");
+            } else if (repeat) {
+              entry.target.classList.remove("is-visible");
+            }
+          });
+        },
+        { threshold: 0.2, rootMargin: "0px 0px -10% 0px" }
+      );
+      nodes.forEach((node) => observer.observe(node));
+    })();
+
+    (() => {
+      const hint = document.querySelector("[data-swipe-hint='true']");
+      const container = document.querySelector(".invite");
+      const hero = document.querySelector(".hero");
+      if (!hint || !container || !hero) return;
+
+      let dismissed = false;
+      const dismiss = () => {
+        if (dismissed) return;
+        dismissed = true;
+        hint.classList.add("is-hidden");
+      };
+
+      const reveal = () => {
+        if (dismissed) return;
+        hint.classList.add("is-visible");
+      };
+      window.setTimeout(reveal, 320);
+
+      const scrollToNextSection = () => {
+        const nextSection =
+          container.querySelector(".story") ||
+          container.querySelector(".rsvp");
+        if (nextSection && typeof nextSection.scrollIntoView === "function") {
+          nextSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        dismiss();
+      };
+
+      hint.addEventListener("click", (event) => {
+        if (event) event.preventDefault();
+        scrollToNextSection();
+      });
+
+      container.addEventListener(
+        "scroll",
+        () => {
+          if (container.scrollTop > 26) dismiss();
+        },
+        { passive: true }
+      );
+
+      container.addEventListener(
+        "wheel",
+        () => {
+          dismiss();
+        },
+        { passive: true, once: true }
+      );
+
+      if (typeof IntersectionObserver !== "function") return;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting || entry.intersectionRatio < 0.62) {
+              dismiss();
+              observer.disconnect();
+            }
+          });
+        },
+        { root: container, threshold: [0.62] }
+      );
+      observer.observe(hero);
+    })();
+
+    (() => {
       const openButtons = Array.from(
         document.querySelectorAll("[data-map-chooser-open='true']")
       );
@@ -3144,9 +5062,76 @@ const renderCheckin = ({
   result,
   prompt,
   formValues,
-  newGuestForm
+  newGuestForm,
+  disambiguation = null
 }) => {
   const guestFontScale = clampNumber(settings?.guest_font_scale, 1, 2.5, 1.1);
+  const festiveTheme = normalizeFestiveTheme(
+    settings?.festive_theme,
+    "classic_red"
+  );
+  const festiveEffectEnabled = settings?.festive_effect_enabled !== false;
+  const festiveEffectStyle = normalizeFestiveEffectStyle(
+    settings?.festive_effect_style,
+    "lantern"
+  );
+  const festiveEffectIntensity = normalizeFestiveEffectIntensity(
+    settings?.festive_effect_intensity,
+    "normal"
+  );
+  const checkinPageTitle = buildPublicPageTitle(settings, "来宾登记");
+  const disambiguationMatches = Array.isArray(disambiguation?.matches)
+    ? disambiguation.matches.filter(
+        (item) =>
+          Number.isFinite(Number(item?.id)) && Number(item.id) > 0
+      )
+    : [];
+  const selectedGuestIdValue = String(formValues?.selected_guest_id || "").trim();
+  const disambiguationHtml = disambiguationMatches.length
+    ? `<div class="prompt-card disambiguation-card">
+          <div class="prompt-title">匹配到多位来宾，请再确认手机号</div>
+          <p>我们为你匹配到了多位「${escapeHtml(
+            disambiguation?.lookup || formValues?.lookup || ""
+          )}」，请选择对应手机号后继续签到。</p>
+          <form method="post" action="/checkin" class="form-stack">
+            <input type="hidden" name="lookup" value="${escapeHtml(
+              formValues?.lookup || ""
+            )}" />
+            <input type="hidden" name="actual_attendees" value="${escapeHtml(
+              formValues?.actual_attendees || "1"
+            )}" />
+            <input type="hidden" name="confirm_attending" value="on" />
+            <div class="disambiguation-list">
+              ${disambiguationMatches
+                .map((item, index) => {
+                  const isChecked = selectedGuestIdValue
+                    ? selectedGuestIdValue === String(item.id || "")
+                    : index === 0;
+                  return `<label class="disambiguation-option">
+                      <input type="radio" name="selected_guest_id" value="${escapeHtml(
+                        String(item.id || "")
+                      )}" ${isChecked ? "checked" : ""} required />
+                      <span class="disambiguation-text">
+                        <span class="disambiguation-main">${escapeHtml(
+                          item.phone_display || "手机号未登记"
+                        )}</span>
+                        <span class="disambiguation-meta">${escapeHtml(
+                          item.meta || "请核对手机号后选择"
+                        )}</span>
+                      </span>
+                    </label>`;
+                })
+                .join("")}
+            </div>
+            <div class="prompt-actions">
+              <button class="btn primary" type="submit">确认并签到</button>
+              <a class="btn ghost" href="/checkin">重新填写</a>
+              <button class="btn ghost" type="submit" name="start_new" value="1">都不是我，登记新来宾</button>
+            </div>
+          </form>
+          <p class="muted">小提示：如发现手机号有误，可请现场工作人员协助。</p>
+        </div>`
+    : "";
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -3156,10 +5141,30 @@ const renderCheckin = ({
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <title>现场签到</title>
+    <title>${escapeHtml(checkinPageTitle)}</title>
+    <meta property="og:title" content="${escapeHtml(checkinPageTitle)}" />
+    <meta name="apple-mobile-web-app-title" content="${escapeHtml(
+      checkinPageTitle
+    )}" />
+    ${renderFaviconLinks()}
     <link rel="stylesheet" href="/public/css/checkin.css" />
   </head>
-  <body style="--guest-font-scale: ${guestFontScale};">
+  <body
+    data-festive-theme="${escapeHtml(festiveTheme)}"
+    data-festive-effect-enabled="${festiveEffectEnabled ? "true" : "false"}"
+    data-festive-effect-style="${escapeHtml(festiveEffectStyle)}"
+    data-festive-effect-intensity="${escapeHtml(festiveEffectIntensity)}"
+    style="--guest-font-scale: ${guestFontScale};"
+  >
+    <div class="festive-layer" aria-hidden="true">
+      <div class="festive-ribbon"></div>
+      <div class="festive-corners" id="checkinFestiveCornerGroup"></div>
+      <div class="festive-particles" id="checkinFestiveParticles"></div>
+    </div>
+    ${renderPublicLogoBadge({
+      href: "/checkin",
+      className: "public-site-logo checkin-site-logo"
+    })}
     <div class="checkin-page">
       <header class="checkin-hero">
         <div class="hero-card">
@@ -3181,6 +5186,7 @@ const renderCheckin = ({
             ? `<div class="alert">${escapeHtml(error)}</div>`
             : ""
         }
+        ${disambiguationHtml}
         ${
           prompt
             ? `<div class="prompt-card">
@@ -3323,6 +5329,12 @@ const renderCheckin = ({
         }
       </section>
     </div>
+    <script>
+      ${renderFestiveLayerScript({
+        cornerContainerId: "checkinFestiveCornerGroup",
+        particleContainerId: "checkinFestiveParticles"
+      })}
+    </script>
     ${
       result
         ? `<script>
@@ -3470,10 +5482,15 @@ const renderLottery = ({ prizes, isAdmin, guests, winners }) => {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>婚礼现场摇奖</title>
+    ${renderFaviconLinks()}
     <link rel="stylesheet" href="/public/css/lottery.css" />
   </head>
   <body>
     <div class="lottery-screen">
+      <a class="lottery-site-logo" href="/invite" aria-label="Wedding Manager">
+        <img src="${SITE_LOGO_ICON_PATH}" alt="" />
+        <span>Wedding Manager</span>
+      </a>
       <header class="stage-header">
         <div class="stage-title">现场摇奖时刻</div>
       </header>

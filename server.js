@@ -22,41 +22,58 @@ const {
 } = require("./views");
 
 const sessions = new Map();
+const SESSION_COOKIE_NAME = "wm_session_id";
+const LEGACY_SESSION_COOKIE_NAME = "session_id";
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
+
+const safeDecodeURIComponent = (value) => {
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    return value;
+  }
+};
 
 const parseCookies = (cookieHeader) => {
   if (!cookieHeader) return {};
   return cookieHeader.split(";").reduce((acc, part) => {
     const [key, ...rest] = part.trim().split("=");
-    acc[key] = decodeURIComponent(rest.join("="));
+    if (!key) return acc;
+    acc[key] = safeDecodeURIComponent(rest.join("="));
     return acc;
   }, {});
 };
 
 const getSession = (req) => {
   const cookies = parseCookies(req.headers.cookie || "");
-  const sessionId = cookies.session_id;
+  const sessionId =
+    cookies[SESSION_COOKIE_NAME] || cookies[LEGACY_SESSION_COOKIE_NAME];
   if (!sessionId) return null;
   return sessions.get(sessionId) || null;
 };
 
-const createSession = (res, adminId) => {
+const createSession = (req, res, adminId) => {
   const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   sessions.set(sessionId, { adminId, createdAt: Date.now() });
+  const secureAttribute = isSecureRequest(req) ? "; Secure" : "";
   res.setHeader(
     "Set-Cookie",
-    `session_id=${sessionId}; HttpOnly; Path=/; SameSite=Lax; Max-Age=28800`
+    `${SESSION_COOKIE_NAME}=${sessionId}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_SECONDS}${secureAttribute}`
   );
 };
 
 const destroySession = (req, res) => {
   const cookies = parseCookies(req.headers.cookie || "");
-  if (cookies.session_id) {
-    sessions.delete(cookies.session_id);
+  const currentSessionId =
+    cookies[SESSION_COOKIE_NAME] || cookies[LEGACY_SESSION_COOKIE_NAME];
+  if (currentSessionId) {
+    sessions.delete(currentSessionId);
   }
-  res.setHeader(
-    "Set-Cookie",
-    "session_id=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0"
-  );
+  const secureAttribute = isSecureRequest(req) ? "; Secure" : "";
+  res.setHeader("Set-Cookie", [
+    `${SESSION_COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secureAttribute}`,
+    `${LEGACY_SESSION_COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secureAttribute}`
+  ]);
 };
 
 const parseBody = (req) =>
@@ -150,18 +167,154 @@ const parseForwardedHeader = (forwarded) => {
     }, {});
 };
 
+const parseAbsoluteUrl = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  try {
+    return new URL(normalized);
+  } catch (error) {
+    return null;
+  }
+};
+
+const normalizeProtocol = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^"|"$/g, "")
+    .replace(/:$/, "");
+  if (!normalized) return null;
+  if (normalized === "https" || normalized === "http") {
+    return normalized;
+  }
+  return null;
+};
+
+const normalizeHost = (value) => {
+  const normalized = String(value || "").trim().replace(/^"|"$/g, "");
+  if (!normalized) return "";
+  if (
+    normalized.startsWith("http://") ||
+    normalized.startsWith("https://")
+  ) {
+    const parsed = parseAbsoluteUrl(normalized);
+    if (parsed?.host) {
+      return parsed.host;
+    }
+  }
+  return normalized.split("/")[0];
+};
+
+const isLocalHostname = (host) => {
+  const normalized = String(host || "").trim().toLowerCase();
+  if (!normalized) return false;
+  const isRawIpv6 =
+    normalized.includes(":") &&
+    !normalized.startsWith("[") &&
+    /^[0-9a-f:]+$/i.test(normalized);
+  const bracketEndIndex = normalized.indexOf("]");
+  const hostWithoutPort = normalized.startsWith("[")
+    ? normalized.slice(1, bracketEndIndex > -1 ? bracketEndIndex : undefined)
+    : isRawIpv6
+      ? normalized
+      : normalized.split(":")[0];
+  const plainHost = hostWithoutPort.replace(/^::ffff:/, "");
+  return (
+    plainHost === "localhost" ||
+    plainHost === "127.0.0.1" ||
+    plainHost === "::1" ||
+    plainHost === "0.0.0.0" ||
+    plainHost.endsWith(".local")
+  );
+};
+
+const detectRequestProtocol = (req, forwarded, host) => {
+  const protoCandidates = [
+    getForwardedHeaderValue(req.headers["x-forwarded-proto"]),
+    getForwardedHeaderValue(req.headers["x-forwarded-protocol"]),
+    getForwardedHeaderValue(req.headers["x-forwarded-scheme"]),
+    getForwardedHeaderValue(req.headers["x-url-scheme"]),
+    getForwardedHeaderValue(req.headers["x-scheme"]),
+    forwarded?.proto
+  ];
+  for (const candidate of protoCandidates) {
+    const normalized = normalizeProtocol(candidate);
+    if (normalized) return normalized;
+  }
+
+  const forwardedSslHeader = String(
+    getForwardedHeaderValue(req.headers["x-forwarded-ssl"]) || ""
+  )
+    .trim()
+    .toLowerCase();
+  if (forwardedSslHeader === "on") return "https";
+
+  const frontEndHttpsHeader = String(
+    getForwardedHeaderValue(req.headers["front-end-https"]) || ""
+  )
+    .trim()
+    .toLowerCase();
+  if (frontEndHttpsHeader === "on") return "https";
+
+  const originProtocol = normalizeProtocol(parseAbsoluteUrl(req.headers.origin)?.protocol);
+  if (originProtocol) return originProtocol;
+
+  const refererProtocol = normalizeProtocol(
+    parseAbsoluteUrl(req.headers.referer)?.protocol
+  );
+  if (refererProtocol) return refererProtocol;
+
+  if (req.socket?.encrypted) return "https";
+
+  return isLocalHostname(host) ? "http" : "https";
+};
+
+const resolveRequestHost = (req, forwarded) =>
+  normalizeHost(
+    getForwardedHeaderValue(req.headers["x-forwarded-host"]) ||
+      forwarded?.host ||
+      req.headers.host ||
+      parseAbsoluteUrl(req.headers.origin)?.host ||
+      parseAbsoluteUrl(req.headers.referer)?.host ||
+      "localhost"
+  ) || "localhost";
+
+const isHttpsForcedForQr = (settings) => {
+  const value = settings?.qr_force_https;
+  if (value === undefined || value === null) return true;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return true;
+};
+
+const isSecureRequest = (req) => {
+  const forwarded = parseForwardedHeader(req.headers.forwarded);
+  const host = resolveRequestHost(req, forwarded);
+  return detectRequestProtocol(req, forwarded, host) === "https";
+};
+
 const getBaseUrl = (req) => {
   const forwarded = parseForwardedHeader(req.headers.forwarded);
-  const protoHeader =
-    getForwardedHeaderValue(req.headers["x-forwarded-proto"]) ||
-    forwarded.proto;
-  const hostHeader =
-    getForwardedHeaderValue(req.headers["x-forwarded-host"]) ||
-    forwarded.host ||
-    req.headers.host;
-  const proto = protoHeader || "http";
-  const host = hostHeader || "localhost";
+  const host = resolveRequestHost(req, forwarded);
+  const proto = detectRequestProtocol(req, forwarded, host);
   return `${proto}://${host}`;
+};
+
+const getQrBaseUrl = (req, settings = {}) => {
+  const baseUrl = getBaseUrl(req);
+  if (!isHttpsForcedForQr(settings)) return baseUrl;
+  try {
+    const parsed = new URL(baseUrl);
+    if (isLocalHostname(parsed.hostname) || parsed.protocol === "https:") {
+      return parsed.toString().replace(/\/$/, "");
+    }
+    parsed.protocol = "https:";
+    return parsed.toString().replace(/\/$/, "");
+  } catch (error) {
+    return baseUrl;
+  }
 };
 
 const ledgerCategories = [
@@ -190,7 +343,16 @@ const sendResponse = (res, status, body, type = "text/html") => {
 };
 
 const redirect = (res, location) => {
-  res.writeHead(302, { Location: location });
+  const headers = {
+    Location: location,
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0"
+  };
+  if (location.startsWith("/admin")) {
+    headers.Vary = "Cookie";
+  }
+  res.writeHead(302, headers);
   res.end();
 };
 
@@ -366,6 +528,169 @@ const parseAttendingValue = (value) => {
   if (["yes", "true", "1", "on"].includes(normalized)) return true;
   if (["no", "false", "0", "off"].includes(normalized)) return false;
   return null;
+};
+
+const normalizeHexColor = (value, fallback) => {
+  const normalized = String(value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(normalized)) {
+    const [r, g, b] = normalized.slice(1).split("");
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return fallback;
+};
+
+const parseBooleanValue = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(normalized);
+};
+
+const heroNamePositionValues = new Set(["near_message", "top", "center"]);
+
+const normalizeHeroNamePosition = (value, fallback = "near_message") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (heroNamePositionValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const sectionBackgroundModeValues = new Set([
+  "cover",
+  "contain",
+  "stretch",
+  "repeat",
+  "repeat-x",
+  "repeat-y"
+]);
+
+const normalizeSectionBackgroundMode = (value, fallback = "cover") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (sectionBackgroundModeValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const inviteFontValues = new Set([
+  "system",
+  "songti",
+  "zhong_song",
+  "kaiti",
+  "fangsong",
+  "heiti",
+  "yuanti",
+  "romance"
+]);
+
+const normalizeInviteFont = (value, fallback = "system") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (inviteFontValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const textAnimationStyleValues = new Set([
+  "fade_up",
+  "soft_zoom",
+  "glow_rise"
+]);
+
+const normalizeTextAnimationStyle = (value, fallback = "fade_up") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (textAnimationStyleValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const countdownThemeValues = new Set(["glass", "romantic", "ink", "gold"]);
+
+const normalizeCountdownTheme = (value, fallback = "glass") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (countdownThemeValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const countdownPositionValues = new Set([
+  "top-left",
+  "top-center",
+  "top-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right"
+]);
+
+const normalizeCountdownPosition = (value, fallback = "top-right") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (countdownPositionValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const swipeHintPositionValues = new Set([
+  "top-left",
+  "top-center",
+  "top-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right"
+]);
+
+const normalizeSwipeHintPosition = (value, fallback = "bottom-center") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (swipeHintPositionValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const swipeHintStyleValues = new Set(["soft_glow", "minimal", "festive_chip"]);
+
+const normalizeSwipeHintStyle = (value, fallback = "soft_glow") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (swipeHintStyleValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const festiveThemeValues = new Set([
+  "classic_red",
+  "palace_gold",
+  "garden_bloom",
+  "champagne_waltz"
+]);
+
+const normalizeFestiveTheme = (value, fallback = "classic_red") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (festiveThemeValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const festiveEffectStyleValues = new Set([
+  "lantern",
+  "petal",
+  "confetti",
+  "sparkle"
+]);
+
+const normalizeFestiveEffectStyle = (value, fallback = "lantern") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (festiveEffectStyleValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const festiveEffectIntensityValues = new Set(["gentle", "normal", "vivid"]);
+
+const normalizeFestiveEffectIntensity = (value, fallback = "normal") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (festiveEffectIntensityValues.has(normalized)) return normalized;
+  return fallback;
+};
+
+const normalizeDateTimeLike = (value, fallback = "") => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(normalized)) {
+    return normalized;
+  }
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return fallback;
+  const pad = (item) => String(item).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(
+    parsed.getDate()
+  )}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 };
 
 const normalizeExternalLink = (value) => {
@@ -581,6 +906,16 @@ const syncGuestAttendeesWithCheckin = (guest, actualAttendees) => {
   delete guest.attendee_adjusted_at;
 };
 
+const maskPhoneForDisambiguation = (value) => {
+  const normalized = String(value || "").replace(/\s+/g, "");
+  if (!normalized) return "手机号未登记";
+  if (normalized.length <= 4) return normalized;
+  if (normalized.length <= 7) {
+    return `${normalized.slice(0, 1)}***${normalized.slice(-2)}`;
+  }
+  return `${normalized.slice(0, 3)}****${normalized.slice(-4)}`;
+};
+
 const getValidTableNo = (value, tables) => {
   const tableNos = new Set(
     (tables || [])
@@ -665,7 +1000,7 @@ const handleRequest = async (req, res) => {
       sendResponse(res, 200, renderLogin("账号或密码错误"));
       return;
     }
-    createSession(res, admin.id);
+    createSession(req, res, admin.id);
     redirect(res, "/admin");
     return;
   }
@@ -706,7 +1041,7 @@ const handleRequest = async (req, res) => {
     const totalTableCount = store.tables.length;
     const prizeCount = store.prizes.length;
     const winnerCount = store.winners.length;
-    const baseUrl = getBaseUrl(req);
+    const baseUrl = getQrBaseUrl(req, store.settings);
     const inviteUrl = `${baseUrl}/invite`;
     const checkinUrl = `${baseUrl}/checkin`;
     sendResponse(
@@ -815,7 +1150,7 @@ const handleRequest = async (req, res) => {
     if (!session) return;
     const store = loadStore();
     const invitationFields = getInvitationFields(store);
-    const baseUrl = getBaseUrl(req);
+    const baseUrl = getQrBaseUrl(req, store.settings);
     const inviteUrl = `${baseUrl}/invite`;
     sendResponse(
       res,
@@ -839,9 +1174,29 @@ const handleRequest = async (req, res) => {
     const store = loadStore();
     const invitationFields = getInvitationFields(store);
     const parsedFontScale = Number(body.guest_font_scale);
+    const parsedHeroOverlayOpacity = Number(body.hero_overlay_opacity);
+    const parsedTextAnimationDuration = Number(body.text_animation_duration);
+    const parsedTextAnimationStagger = Number(body.text_animation_stagger_ms);
+    const parsedCountdownOpacity = Number(body.countdown_opacity);
+    const storedHeroOverlayOpacity = Number(store.settings.hero_overlay_opacity);
+    const safeStoredHeroOverlayOpacity = Number.isNaN(storedHeroOverlayOpacity)
+      ? 0.6
+      : Math.min(1, Math.max(0, storedHeroOverlayOpacity));
     const guestFontScale = Number.isNaN(parsedFontScale)
       ? store.settings.guest_font_scale || 1.1
       : Math.min(2.5, Math.max(1, parsedFontScale));
+    const heroOverlayOpacity = Number.isNaN(parsedHeroOverlayOpacity)
+      ? safeStoredHeroOverlayOpacity
+      : Math.min(1, Math.max(0, parsedHeroOverlayOpacity));
+    const textAnimationDuration = Number.isNaN(parsedTextAnimationDuration)
+      ? Math.min(3, Math.max(0.3, Number(store.settings.text_animation_duration || 0.9)))
+      : Math.min(3, Math.max(0.3, parsedTextAnimationDuration));
+    const textAnimationStagger = Number.isNaN(parsedTextAnimationStagger)
+      ? Math.min(500, Math.max(0, Number(store.settings.text_animation_stagger_ms || 120)))
+      : Math.min(500, Math.max(0, parsedTextAnimationStagger));
+    const countdownOpacity = Number.isNaN(parsedCountdownOpacity)
+      ? Math.min(1, Math.max(0.2, Number(store.settings.countdown_opacity || 0.9)))
+      : Math.min(1, Math.max(0.2, parsedCountdownOpacity));
     store.settings = {
       ...store.settings,
       couple_name: body.couple_name || "",
@@ -859,7 +1214,104 @@ const handleRequest = async (req, res) => {
       ),
       hero_message: body.hero_message || "",
       hero_image_url: String(body.hero_image_url || "").trim(),
-      guest_font_scale: guestFontScale
+      hero_overlay_enabled: parseBooleanValue(body.hero_overlay_enabled),
+      hero_overlay_color: normalizeHexColor(
+        body.hero_overlay_color,
+        store.settings.hero_overlay_color || "#000000"
+      ),
+      hero_overlay_opacity: heroOverlayOpacity,
+      hero_text_color: normalizeHexColor(
+        body.hero_text_color,
+        store.settings.hero_text_color || "#ffffff"
+      ),
+      hero_name_position: normalizeHeroNamePosition(
+        body.hero_name_position,
+        store.settings.hero_name_position || "near_message"
+      ),
+      lunar_date_enabled: parseBooleanValue(body.lunar_date_enabled),
+      invite_font_base: normalizeInviteFont(
+        body.invite_font_base,
+        store.settings.invite_font_base || "system"
+      ),
+      invite_font_heading: normalizeInviteFont(
+        body.invite_font_heading,
+        store.settings.invite_font_heading || "songti"
+      ),
+      invite_font_couple: normalizeInviteFont(
+        body.invite_font_couple,
+        store.settings.invite_font_couple || "kaiti"
+      ),
+      invite_font_countdown: normalizeInviteFont(
+        body.invite_font_countdown,
+        store.settings.invite_font_countdown || "heiti"
+      ),
+      text_animation_enabled: parseBooleanValue(body.text_animation_enabled),
+      text_animation_style: normalizeTextAnimationStyle(
+        body.text_animation_style,
+        store.settings.text_animation_style || "fade_up"
+      ),
+      text_animation_duration: textAnimationDuration,
+      text_animation_stagger_ms: textAnimationStagger,
+      text_animation_repeat: parseBooleanValue(body.text_animation_repeat),
+      swipe_hint_enabled: parseBooleanValue(body.swipe_hint_enabled),
+      swipe_hint_text:
+        String(body.swipe_hint_text || "").trim() || "上滑查看下一页",
+      swipe_hint_position: normalizeSwipeHintPosition(
+        body.swipe_hint_position,
+        store.settings.swipe_hint_position || "bottom-center"
+      ),
+      swipe_hint_style: normalizeSwipeHintStyle(
+        body.swipe_hint_style,
+        store.settings.swipe_hint_style || "soft_glow"
+      ),
+      countdown_enabled: parseBooleanValue(body.countdown_enabled),
+      countdown_show_home: parseBooleanValue(body.countdown_show_home),
+      countdown_show_success: parseBooleanValue(body.countdown_show_success),
+      countdown_target_at: normalizeDateTimeLike(
+        body.countdown_target_at,
+        store.settings.countdown_target_at || ""
+      ),
+      countdown_label: String(body.countdown_label || "").trim() || "婚礼倒计时",
+      countdown_theme: normalizeCountdownTheme(
+        body.countdown_theme,
+        store.settings.countdown_theme || "glass"
+      ),
+      countdown_bg_color: normalizeHexColor(
+        body.countdown_bg_color,
+        store.settings.countdown_bg_color || "#ffffff"
+      ),
+      countdown_text_color: normalizeHexColor(
+        body.countdown_text_color,
+        store.settings.countdown_text_color || "#4b3c33"
+      ),
+      countdown_accent_color: normalizeHexColor(
+        body.countdown_accent_color,
+        store.settings.countdown_accent_color || "#d68aa1"
+      ),
+      countdown_opacity: countdownOpacity,
+      countdown_home_position: normalizeCountdownPosition(
+        body.countdown_home_position,
+        store.settings.countdown_home_position || "top-right"
+      ),
+      countdown_success_position: normalizeCountdownPosition(
+        body.countdown_success_position,
+        store.settings.countdown_success_position || "top-right"
+      ),
+      festive_theme: normalizeFestiveTheme(
+        body.festive_theme,
+        store.settings.festive_theme || "classic_red"
+      ),
+      festive_effect_enabled: parseBooleanValue(body.festive_effect_enabled),
+      festive_effect_style: normalizeFestiveEffectStyle(
+        body.festive_effect_style,
+        store.settings.festive_effect_style || "lantern"
+      ),
+      festive_effect_intensity: normalizeFestiveEffectIntensity(
+        body.festive_effect_intensity,
+        store.settings.festive_effect_intensity || "normal"
+      ),
+      guest_font_scale: guestFontScale,
+      qr_force_https: parseBooleanValue(body.qr_force_https)
     };
     saveStore(store);
     redirect(res, "/admin/invitation");
@@ -989,6 +1441,10 @@ const handleRequest = async (req, res) => {
       sort_order: Number(body.sort_order) || 0,
       title: String(body.title || "").trim(),
       body: String(body.body || "").trim(),
+      background_mode: normalizeSectionBackgroundMode(
+        body.background_mode,
+        "cover"
+      ),
       image_url: String(body.image_url || "").trim()
     });
     saveStore(store);
@@ -1012,6 +1468,10 @@ const handleRequest = async (req, res) => {
             sort_order: Number(body.sort_order) || 0,
             title: String(body.title || "").trim(),
             body: String(body.body || "").trim(),
+            background_mode: normalizeSectionBackgroundMode(
+              body.background_mode,
+              section.background_mode || "cover"
+            ),
             image_url: String(body.image_url || "").trim()
           }
         : section
@@ -1841,7 +2301,7 @@ const handleRequest = async (req, res) => {
       (sum, guest) => sum + parsePartySize(guest.checkin?.actual_attendees),
       0
     );
-    const baseUrl = getBaseUrl(req);
+    const baseUrl = getQrBaseUrl(req, store.settings);
     const checkinUrl = `${baseUrl}/checkin`;
     sendResponse(
       res,
@@ -2011,6 +2471,12 @@ const handleRequest = async (req, res) => {
   if (req.method === "GET" && pathname === "/invite") {
     const store = loadStore();
     const invitationFields = getInvitationFields(store);
+    const submitted = url.searchParams.get("submitted");
+    const submittedGuest = {
+      name: String(url.searchParams.get("guest_name") || "").trim(),
+      phone: String(url.searchParams.get("guest_phone") || "").trim(),
+      attendees: String(url.searchParams.get("guest_attendees") || "").trim()
+    };
     sendResponse(
       res,
       200,
@@ -2020,7 +2486,8 @@ const handleRequest = async (req, res) => {
           (a, b) => a.sort_order - b.sort_order
         ),
         fields: invitationFields,
-        submitted: url.searchParams.get("submitted")
+        submitted,
+        submittedGuest
       })
     );
     return;
@@ -2053,6 +2520,7 @@ const handleRequest = async (req, res) => {
     const confirmAttending = Boolean(body.confirm_attending);
     const startNew = body.start_new === "1";
     const newGuest = body.new_guest === "1";
+    const selectedGuestId = Number.parseInt(body.selected_guest_id, 10) || 0;
     const actualAttendees = Math.max(
       Number.parseInt(body.actual_attendees, 10) || 1,
       1
@@ -2063,6 +2531,7 @@ const handleRequest = async (req, res) => {
       lookup: lookupInput,
       actual_attendees: String(actualAttendees),
       confirm_attending: confirmAttending,
+      selected_guest_id: selectedGuestId > 0 ? String(selectedGuestId) : "",
       name: (body.name || "").trim(),
       phone: (body.phone || "").trim()
     };
@@ -2182,6 +2651,97 @@ const handleRequest = async (req, res) => {
       );
       return;
     }
+    const resolveGuestMatches = () => {
+      const phoneMatches = normalizedLookup
+        ? store.guests.filter((item) => item.phone === normalizedLookup)
+        : [];
+      const nameMatches = lookupInput
+        ? store.guests.filter((item) => item.name === lookupInput)
+        : [];
+      const matchMap = new Map();
+      [...phoneMatches, ...nameMatches].forEach((item) => {
+        matchMap.set(item.id, item);
+      });
+      return Array.from(matchMap.values());
+    };
+
+    const submitGuestCheckin = (guest) => {
+      if (isLikelyPhone && normalizedLookup) {
+        guest.phone = normalizedLookup;
+      } else if (lookupInput) {
+        guest.name = lookupInput;
+      }
+      guest.attending = true;
+      syncGuestAttendeesWithCheckin(guest, actualAttendees);
+      guest.updated_at = new Date().toISOString();
+      const checkinRecord = upsertCheckin(store, guest.id, actualAttendees);
+      saveStore(store);
+      sendResponse(
+        res,
+        200,
+        renderCheckin({
+          settings: store.settings,
+          fields: invitationFields,
+          error: null,
+          result: {
+            name: guest.name,
+            table_no: guest.table_no || "未分配",
+            actual_attendees: actualAttendees,
+            checked_in_at: checkinRecord.checked_in_at
+          },
+          prompt: null,
+          formValues,
+          newGuestForm: false
+        })
+      );
+    };
+
+    if (selectedGuestId > 0) {
+      if (!confirmAttending) {
+        sendResponse(
+          res,
+          200,
+          renderCheckin({
+            settings: store.settings,
+            fields: invitationFields,
+            error: "请确认到场出席状态。",
+            result: null,
+            prompt: null,
+            formValues,
+            newGuestForm: false
+          })
+        );
+        return;
+      }
+      const candidateMatches = resolveGuestMatches();
+      let selectedGuest = null;
+      if (candidateMatches.length) {
+        selectedGuest =
+          candidateMatches.find((item) => item.id === selectedGuestId) || null;
+      } else if (!lookupInput) {
+        selectedGuest =
+          store.guests.find((item) => item.id === selectedGuestId) || null;
+      }
+      if (!selectedGuest) {
+        sendResponse(
+          res,
+          200,
+          renderCheckin({
+            settings: store.settings,
+            fields: invitationFields,
+            error: "未找到你选择的来宾信息，请重新输入后再试。",
+            result: null,
+            prompt: null,
+            formValues,
+            newGuestForm: false
+          })
+        );
+        return;
+      }
+      submitGuestCheckin(selectedGuest);
+      return;
+    }
+
     if (!lookupInput) {
       sendResponse(
         res,
@@ -2214,24 +2774,9 @@ const handleRequest = async (req, res) => {
       );
       return;
     }
-    const phoneMatches = normalizedLookup
-      ? store.guests.filter((item) => item.phone === normalizedLookup)
-      : [];
-    const nameMatches = lookupInput
-      ? store.guests.filter((item) => item.name === lookupInput)
-      : [];
-    const matchMap = new Map();
-    [...phoneMatches, ...nameMatches].forEach((item) => {
-      matchMap.set(item.id, item);
-    });
-    const uniqueMatches = Array.from(matchMap.values());
-    let guest = uniqueMatches.length === 1 ? uniqueMatches[0] : null;
-    if (!guest) {
-      let message =
-        "未在请柬登记名单中出现，是否填写错误？若确认为新来宾可继续登记。";
-      if (uniqueMatches.length > 1) {
-        message = "匹配到多位来宾，请联系工作人员确认，或登记为新来宾。";
-      }
+
+    const uniqueMatches = resolveGuestMatches();
+    if (!uniqueMatches.length) {
       sendResponse(
         res,
         200,
@@ -2240,43 +2785,51 @@ const handleRequest = async (req, res) => {
           fields: invitationFields,
           error: null,
           result: null,
-          prompt: { message },
+          prompt: {
+            message: "未在请柬登记名单中出现，是否填写错误？若确认为新来宾可继续登记。"
+          },
           formValues,
           newGuestForm: false
         })
       );
       return;
     }
-    if (guest) {
-      if (isLikelyPhone) {
-        guest.phone = normalizedLookup;
-      } else {
-        guest.name = lookupInput;
-      }
-      guest.attending = true;
-      syncGuestAttendeesWithCheckin(guest, actualAttendees);
-      guest.updated_at = new Date().toISOString();
+
+    if (uniqueMatches.length > 1) {
+      const disambiguationMatches = uniqueMatches.map((item) => {
+        const tableNo = normalizeTableNo(item.table_no);
+        const attendees = getStoredAttendeeCount(item);
+        return {
+          id: item.id,
+          name: item.name || "",
+          phone: item.phone || "",
+          phone_display: maskPhoneForDisambiguation(item.phone || ""),
+          meta: `${tableNo ? `桌号 ${tableNo}` : "桌号未分配"} · ${
+            attendees ? `登记${attendees}位` : "登记人数未填"
+          }`
+        };
+      });
+      sendResponse(
+        res,
+        200,
+        renderCheckin({
+          settings: store.settings,
+          fields: invitationFields,
+          error: null,
+          result: null,
+          prompt: null,
+          disambiguation: {
+            lookup: lookupInput,
+            matches: disambiguationMatches
+          },
+          formValues,
+          newGuestForm: false
+        })
+      );
+      return;
     }
-    const checkinRecord = upsertCheckin(store, guest.id, actualAttendees);
-    saveStore(store);
-    sendResponse(
-      res,
-      200,
-      renderCheckin({
-        settings: store.settings,
-        fields: invitationFields,
-        error: null,
-        result: {
-          name: guest.name,
-          table_no: guest.table_no || "未分配",
-          actual_attendees: actualAttendees,
-          checked_in_at: checkinRecord.checked_in_at
-        },
-        prompt: null,
-        formValues,
-        newGuestForm: false
-      })
-    );
+
+    submitGuestCheckin(uniqueMatches[0]);
     return;
   }
 
@@ -2327,7 +2880,13 @@ const handleRequest = async (req, res) => {
       });
     }
     saveStore(store);
-    redirect(res, "/invite?submitted=1");
+    const successParams = new URLSearchParams({
+      submitted: "1",
+      guest_name: name,
+      guest_phone: phone,
+      guest_attendees: attendees
+    });
+    redirect(res, `/invite?${successParams.toString()}`);
     return;
   }
 

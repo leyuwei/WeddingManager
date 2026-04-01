@@ -8,6 +8,7 @@ process.env.DATA_PATH = path.join(__dirname, "../data/test-store.json");
 process.env.DB_PATH = path.join(os.tmpdir(), "weddingmanager-test.db");
 
 const { createServer } = require("../server");
+const { loadStore, saveStore } = require("../storage");
 
 let server;
 let baseUrl;
@@ -38,6 +39,62 @@ test("loads invite page", async () => {
   assert.ok(text.includes("婚礼请柬"));
 });
 
+test("includes couple name in invite and checkin page titles", async () => {
+  const store = loadStore();
+  const previousSettings = { ...store.settings };
+  store.settings = {
+    ...store.settings,
+    couple_name: "赵明 和 钱雨"
+  };
+  saveStore(store);
+
+  try {
+    const inviteResponse = await fetch(`${baseUrl}/invite`);
+    const inviteText = await inviteResponse.text();
+    assert.strictEqual(inviteResponse.status, 200);
+    assert.ok(inviteText.includes("<title>赵明 和 钱雨｜婚礼请柬</title>"));
+    assert.ok(
+      inviteText.includes(
+        '<meta property="og:title" content="赵明 和 钱雨｜婚礼请柬" />'
+      )
+    );
+
+    const checkinResponse = await fetch(`${baseUrl}/checkin`);
+    const checkinText = await checkinResponse.text();
+    assert.strictEqual(checkinResponse.status, 200);
+    assert.ok(checkinText.includes("<title>赵明 和 钱雨｜来宾登记</title>"));
+    assert.ok(
+      checkinText.includes(
+        '<meta property="og:title" content="赵明 和 钱雨｜来宾登记" />'
+      )
+    );
+  } finally {
+    const reset = loadStore();
+    reset.settings = previousSettings;
+    saveStore(reset);
+  }
+});
+
+test("renders favicon and logo on login and qr entry pages", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`);
+  const loginText = await loginResponse.text();
+  assert.strictEqual(loginResponse.status, 200);
+  assert.ok(loginText.includes('href="/public/assets/wm-mark.svg"'));
+  assert.ok(loginText.includes('class="auth-brand"'));
+
+  const inviteResponse = await fetch(`${baseUrl}/invite`);
+  const inviteText = await inviteResponse.text();
+  assert.strictEqual(inviteResponse.status, 200);
+  assert.ok(inviteText.includes('href="/public/assets/wm-mark.svg"'));
+  assert.ok(inviteText.includes('class="public-site-logo invite-site-logo"'));
+
+  const checkinResponse = await fetch(`${baseUrl}/checkin`);
+  const checkinText = await checkinResponse.text();
+  assert.strictEqual(checkinResponse.status, 200);
+  assert.ok(checkinText.includes('href="/public/assets/wm-mark.svg"'));
+  assert.ok(checkinText.includes('class="public-site-logo checkin-site-logo"'));
+});
+
 test("allows admin login with default account", async () => {
   const response = await fetch(`${baseUrl}/admin/login`, {
     method: "POST",
@@ -47,6 +104,177 @@ test("allows admin login with default account", async () => {
   });
   assert.strictEqual(response.status, 302);
   assert.strictEqual(response.headers.get("location"), "/admin");
+  const setCookie = response.headers.get("set-cookie") || "";
+  assert.ok(setCookie.includes("wm_session_id="));
+});
+
+test("sets secure session cookie when request is forwarded as https", async () => {
+  const response = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Forwarded-Proto": "https"
+    },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  assert.strictEqual(response.status, 302);
+  const setCookie = response.headers.get("set-cookie") || "";
+  assert.ok(setCookie.includes("wm_session_id="));
+  assert.ok(setCookie.includes("Secure"));
+});
+
+test("forces https qr links by default even when proxy reports http", async () => {
+  const proxyHost = "wedding.example.com";
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Forwarded-Proto": "http",
+      "X-Forwarded-Host": proxyHost
+    },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  assert.strictEqual(loginResponse.status, 302);
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const dashboardResponse = await fetch(`${baseUrl}/admin`, {
+    headers: {
+      cookie,
+      "X-Forwarded-Proto": "http",
+      "X-Forwarded-Host": proxyHost
+    }
+  });
+  const dashboardText = await dashboardResponse.text();
+  assert.strictEqual(dashboardResponse.status, 200);
+  assert.ok(dashboardText.includes(`https://${proxyHost}/invite`));
+  assert.ok(dashboardText.includes(`https://${proxyHost}/checkin`));
+  assert.ok(
+    dashboardText.includes(
+      encodeURIComponent(`https://${proxyHost}/invite`)
+    )
+  );
+  assert.ok(
+    dashboardText.includes(
+      encodeURIComponent(`https://${proxyHost}/checkin`)
+    )
+  );
+
+  const invitationResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: {
+      cookie,
+      "X-Forwarded-Proto": "http",
+      "X-Forwarded-Host": proxyHost
+    }
+  });
+  const invitationText = await invitationResponse.text();
+  assert.strictEqual(invitationResponse.status, 200);
+  assert.ok(invitationText.includes(`https://${proxyHost}/invite`));
+  assert.ok(
+    invitationText.includes(
+      encodeURIComponent(`https://${proxyHost}/invite`)
+    )
+  );
+
+  const checkinsResponse = await fetch(`${baseUrl}/admin/checkins`, {
+    headers: {
+      cookie,
+      "X-Forwarded-Proto": "http",
+      "X-Forwarded-Host": proxyHost
+    }
+  });
+  const checkinsText = await checkinsResponse.text();
+  assert.strictEqual(checkinsResponse.status, 200);
+  assert.ok(checkinsText.includes(`https://${proxyHost}/checkin`));
+  assert.ok(
+    checkinsText.includes(
+      encodeURIComponent(`https://${proxyHost}/checkin`)
+    )
+  );
+});
+
+test("allows disabling forced https for all qr links", async () => {
+  const proxyHost = "wedding.example.com";
+  const store = loadStore();
+  store.settings = { ...store.settings, qr_force_https: false };
+  saveStore(store);
+
+  try {
+    const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Forwarded-Proto": "http",
+        "X-Forwarded-Host": proxyHost
+      },
+      body: new URLSearchParams({ username: "admin", password: "admin123" }),
+      redirect: "manual"
+    });
+    assert.strictEqual(loginResponse.status, 302);
+    const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+    assert.ok(cookie);
+
+    const dashboardResponse = await fetch(`${baseUrl}/admin`, {
+      headers: {
+        cookie,
+        "X-Forwarded-Proto": "http",
+        "X-Forwarded-Host": proxyHost
+      }
+    });
+    const dashboardText = await dashboardResponse.text();
+    assert.strictEqual(dashboardResponse.status, 200);
+    assert.ok(dashboardText.includes(`http://${proxyHost}/invite`));
+    assert.ok(dashboardText.includes(`http://${proxyHost}/checkin`));
+    assert.ok(
+      dashboardText.includes(encodeURIComponent(`http://${proxyHost}/invite`))
+    );
+    assert.ok(
+      dashboardText.includes(encodeURIComponent(`http://${proxyHost}/checkin`))
+    );
+
+    const invitationResponse = await fetch(`${baseUrl}/admin/invitation`, {
+      headers: {
+        cookie,
+        "X-Forwarded-Proto": "http",
+        "X-Forwarded-Host": proxyHost
+      }
+    });
+    const invitationText = await invitationResponse.text();
+    assert.strictEqual(invitationResponse.status, 200);
+    assert.ok(invitationText.includes(`http://${proxyHost}/invite`));
+    assert.ok(
+      invitationText.includes(encodeURIComponent(`http://${proxyHost}/invite`))
+    );
+
+    const checkinsResponse = await fetch(`${baseUrl}/admin/checkins`, {
+      headers: {
+        cookie,
+        "X-Forwarded-Proto": "http",
+        "X-Forwarded-Host": proxyHost
+      }
+    });
+    const checkinsText = await checkinsResponse.text();
+    assert.strictEqual(checkinsResponse.status, 200);
+    assert.ok(checkinsText.includes(`http://${proxyHost}/checkin`));
+    assert.ok(
+      checkinsText.includes(encodeURIComponent(`http://${proxyHost}/checkin`))
+    );
+  } finally {
+    const reset = loadStore();
+    reset.settings = { ...reset.settings, qr_force_https: true };
+    saveStore(reset);
+  }
+});
+
+test("does not crash when receiving malformed cookies", async () => {
+  const response = await fetch(`${baseUrl}/admin`, {
+    headers: { cookie: "bad=%E0%A4%A" },
+    redirect: "manual"
+  });
+  assert.strictEqual(response.status, 302);
+  assert.strictEqual(response.headers.get("location"), "/admin/login");
 });
 
 test("shows formatted guest name for multiple attendees in lists and seat cards", async () => {
@@ -140,6 +368,68 @@ test("warns when multiple guests share the same lookup on check-in", async () =>
   const text = await response.text();
   assert.strictEqual(response.status, 200);
   assert.ok(text.includes("匹配到多位来宾"));
+});
+
+test("allows selecting phone when multiple guests share the same name", async () => {
+  const rsvpResponseOne = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "重名来宾A",
+      phone: "13900000005",
+      attending: "yes",
+      attendees: "1"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(rsvpResponseOne.status, 302);
+
+  const rsvpResponseTwo = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "重名来宾A",
+      phone: "13900000006",
+      attending: "yes",
+      attendees: "2"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(rsvpResponseTwo.status, 302);
+
+  const response = await fetch(`${baseUrl}/checkin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      lookup: "重名来宾A",
+      confirm_attending: "on",
+      actual_attendees: "2"
+    })
+  });
+  const text = await response.text();
+  assert.strictEqual(response.status, 200);
+  assert.ok(text.includes("请选择对应手机号后继续签到"));
+  assert.ok(text.includes('name="selected_guest_id"'));
+  assert.ok(text.includes("139****0005") || text.includes("139****0006"));
+
+  const matchedIds = Array.from(
+    text.matchAll(/name="selected_guest_id"\s+value="(\d+)"/g)
+  ).map((item) => item[1]);
+  assert.ok(matchedIds.length >= 2);
+
+  const confirmResponse = await fetch(`${baseUrl}/checkin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      lookup: "重名来宾A",
+      selected_guest_id: matchedIds[1],
+      confirm_attending: "on",
+      actual_attendees: "2"
+    })
+  });
+  const confirmText = await confirmResponse.text();
+  assert.strictEqual(confirmResponse.status, 200);
+  assert.ok(confirmText.includes("签到成功"));
 });
 
 test("allows forcing new guest creation after check-in warning", async () => {
@@ -527,6 +817,53 @@ test("keeps admin invitation inline script syntactically valid", async () => {
   assert.ok(invitationText.includes('id="fieldOrderList"'));
   assert.ok(invitationText.includes('data-order-item draggable="true"'));
   assert.ok(invitationText.includes('data-order-move="-1"'));
+});
+
+test("shows festive theme controls and festive layer on invite page", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const adminInvitationResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const adminInvitationText = await adminInvitationResponse.text();
+  assert.strictEqual(adminInvitationResponse.status, 200);
+  assert.ok(adminInvitationText.includes('name="festive_theme"'));
+  assert.ok(adminInvitationText.includes('name="festive_effect_enabled"'));
+  assert.ok(adminInvitationText.includes('name="festive_effect_style"'));
+  assert.ok(adminInvitationText.includes('name="festive_effect_intensity"'));
+  assert.ok(adminInvitationText.includes('name="swipe_hint_enabled"'));
+  assert.ok(adminInvitationText.includes('name="swipe_hint_text"'));
+  assert.ok(adminInvitationText.includes('name="swipe_hint_position"'));
+  assert.ok(adminInvitationText.includes('name="swipe_hint_style"'));
+  assert.ok(adminInvitationText.includes('data-settings-group="basic"'));
+  assert.ok(adminInvitationText.includes('data-settings-group="festive"'));
+  assert.ok(adminInvitationText.includes('data-settings-group="swipe-hint"'));
+  assert.ok(adminInvitationText.includes('value="champagne_waltz"'));
+
+  const inviteResponse = await fetch(`${baseUrl}/invite`);
+  const inviteText = await inviteResponse.text();
+  assert.strictEqual(inviteResponse.status, 200);
+  assert.ok(inviteText.includes('data-festive-theme="'));
+  assert.ok(inviteText.includes('data-festive-effect-enabled="'));
+  assert.ok(inviteText.includes('id="festiveCornerGroup"'));
+  assert.ok(inviteText.includes('id="festiveParticles"'));
+  assert.ok(inviteText.includes('data-swipe-hint="true"'));
+  assert.ok(!inviteText.includes('festive-corner-left">囍</span>'));
+
+  const checkinResponse = await fetch(`${baseUrl}/checkin`);
+  const checkinText = await checkinResponse.text();
+  assert.strictEqual(checkinResponse.status, 200);
+  assert.ok(checkinText.includes('data-festive-theme="'));
+  assert.ok(checkinText.includes('data-festive-effect-enabled="'));
+  assert.ok(checkinText.includes('id="checkinFestiveCornerGroup"'));
+  assert.ok(checkinText.includes('id="checkinFestiveParticles"'));
 });
 
 test("allows editing invitation sections", async () => {

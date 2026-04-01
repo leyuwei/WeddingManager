@@ -17,6 +17,37 @@ body {
   flex-direction: column;
   padding: 48px;
   gap: 32px;
+  position: relative;
+}
+
+.lottery-site-logo {
+  position: absolute;
+  top: 24px;
+  left: 28px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px 7px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(10, 9, 20, 0.72);
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.24);
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.lottery-site-logo img {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+
+.lottery-site-logo span {
+  font-family: "Playfair Display", serif;
+  font-size: 13px;
+  letter-spacing: 0.4px;
 }
 
 .stage-header {
@@ -399,5 +430,24 @@ body {
 @media (max-width: 900px) {
   .lottery-panel {
     grid-template-columns: 1fr;
+  }
+
+  .lottery-screen {
+    padding: 28px 16px;
+    gap: 20px;
+  }
+
+  .lottery-site-logo {
+    top: 10px;
+    left: 12px;
+    padding: 6px;
+  }
+
+  .lottery-site-logo span {
+    display: none;
+  }
+
+  .stage-title {
+    margin-top: 24px;
   }
 }
