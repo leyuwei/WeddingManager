@@ -339,6 +339,15 @@ const seedStore = (store) => {
       wedding_location: "海滨花园宴会厅",
       wedding_location_map_url: "",
       wedding_route_image_urls: [],
+      target_invite_intro_bg_color: "#7b1f2f",
+      target_invite_recipients: [],
+      target_invite_friendly_message_enabled: false,
+      target_invite_message_templates: [
+        "您好！谨代表我们诚挚邀请您拨冗出席婚礼，若蒙莅临，不胜荣幸。",
+        "您好！诚挚邀请您见证我们的人生重要时刻，盼您光临指导。",
+        "您好！一直承蒙关照，特此奉上婚礼请柬，诚邀您莅临共享喜悦。",
+        "您好！在这份重要时刻，我们非常希望能当面表达感谢，诚邀您出席婚礼。"
+      ],
       invitation_guest_field_order: [],
       lunar_date_enabled: false,
       hero_message: "诚挚邀请你见证我们的幸福时刻",
@@ -394,6 +403,49 @@ const seedStore = (store) => {
 
   if (!store.settings.hero_image_url) {
     store.settings.hero_image_url = defaultHeroImageUrl;
+  }
+
+  store.settings.target_invite_intro_bg_color = normalizeHexColor(
+    store.settings.target_invite_intro_bg_color,
+    "#7b1f2f"
+  );
+  if (!Array.isArray(store.settings.target_invite_recipients)) {
+    store.settings.target_invite_recipients = [];
+  }
+  store.settings.target_invite_recipients = store.settings.target_invite_recipients
+    .map((item) => ({
+      name: String(item?.name || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, 32),
+      title: String(item?.title || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, 24)
+    }))
+    .filter((item) => item.name);
+  store.settings.target_invite_friendly_message_enabled = normalizeBoolean(
+    store.settings.target_invite_friendly_message_enabled,
+    false
+  );
+  if (!Array.isArray(store.settings.target_invite_message_templates)) {
+    store.settings.target_invite_message_templates = [];
+  }
+  store.settings.target_invite_message_templates = store.settings.target_invite_message_templates
+    .map((item) =>
+      String(item || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, 220)
+    )
+    .filter(Boolean);
+  if (!store.settings.target_invite_message_templates.length) {
+    store.settings.target_invite_message_templates = [
+      "您好！谨代表我们诚挚邀请您拨冗出席婚礼，若蒙莅临，不胜荣幸。",
+      "您好！诚挚邀请您见证我们的人生重要时刻，盼您光临指导。",
+      "您好！一直承蒙关照，特此奉上婚礼请柬，诚邀您莅临共享喜悦。",
+      "您好！在这份重要时刻，我们非常希望能当面表达感谢，诚邀您出席婚礼。"
+    ];
   }
 
   store.settings.hero_overlay_enabled = normalizeBoolean(

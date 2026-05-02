@@ -712,6 +712,73 @@ const normalizeExternalLinks = (value) => {
   return [...new Set(normalized)];
 };
 
+const normalizeInviteRecipientField = (value, maxLength = 24) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, maxLength);
+
+const normalizeTargetInviteRecipients = (value, maxItems = 300) => {
+  const lines = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .replace(/\r/g, "")
+        .split("\n");
+  const normalized = [];
+  const seen = new Set();
+  lines.forEach((line) => {
+    const trimmed = String(line || "").trim();
+    if (!trimmed) return;
+    const parts = trimmed
+      .split(/[,\t，]/)
+      .map((item) => normalizeInviteRecipientField(item, 32))
+      .filter(Boolean);
+    const name = parts[0] || "";
+    const title = normalizeInviteRecipientField(parts[1] || "", 24);
+    if (!name) return;
+    const key = `${name}|${title}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    normalized.push({ name, title });
+  });
+  return normalized.slice(0, maxItems);
+};
+
+const defaultFriendlyInviteMessageTemplates = [
+  "您好！谨代表我们诚挚邀请您拨冗出席婚礼，若蒙莅临，不胜荣幸。",
+  "您好！诚挚邀请您见证我们的人生重要时刻，盼您光临指导。",
+  "您好！一直承蒙关照，特此奉上婚礼请柬，诚邀您莅临共享喜悦。",
+  "您好！在这份重要时刻，我们非常希望能当面表达感谢，诚邀您出席婚礼。"
+];
+
+const normalizeTargetInviteMessageTemplates = (value, maxItems = 20) => {
+  const list = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .replace(/\r/g, "")
+        .split("\n");
+  const templates = [];
+  const seen = new Set();
+  list.forEach((item) => {
+    const normalized = String(item || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 220);
+    if (!normalized) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    templates.push(normalized);
+  });
+  if (!templates.length) return [...defaultFriendlyInviteMessageTemplates];
+  return templates.slice(0, maxItems);
+};
+
+const buildOfflinePhoneToken = (name, title = "") =>
+  `offline:${normalizeInviteRecipientField(name, 32)}:${normalizeInviteRecipientField(
+    title,
+    24
+  )}`;
+
 const invitationFieldTypeValues = new Set([
   "text",
   "textarea",
@@ -1312,6 +1379,113 @@ const handleRequest = async (req, res) => {
       ),
       guest_font_scale: guestFontScale,
       qr_force_https: parseBooleanValue(body.qr_force_https)
+    };
+    saveStore(store);
+    redirect(res, "/admin/invitation");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/invitation/targets/save") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    const recipients = normalizeTargetInviteRecipients(
+      body.target_invite_recipients_text
+    );
+    store.settings = {
+      ...store.settings,
+      target_invite_name: "",
+      target_invite_title: "",
+      target_invite_intro_bg_color: normalizeHexColor(
+        body.target_invite_intro_bg_color,
+        store.settings?.target_invite_intro_bg_color || "#7b1f2f"
+      ),
+      target_invite_recipients: recipients,
+      target_invite_friendly_message_enabled: parseBooleanValue(
+        body.target_invite_friendly_message_enabled
+      )
+    };
+    saveStore(store);
+    redirect(res, "/admin/invitation");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/invitation/targets/templates") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const template = String(body.template || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 220);
+    if (!template) {
+      redirect(res, "/admin/invitation");
+      return;
+    }
+    const store = loadStore();
+    const templates = normalizeTargetInviteMessageTemplates(
+      store.settings?.target_invite_message_templates
+    );
+    templates.push(template);
+    store.settings = {
+      ...store.settings,
+      target_invite_message_templates: normalizeTargetInviteMessageTemplates(templates)
+    };
+    saveStore(store);
+    redirect(res, "/admin/invitation");
+    return;
+  }
+
+  const inviteTemplateUpdateMatch = pathname.match(
+    /^\/admin\/invitation\/targets\/templates\/(\d+)\/update$/
+  );
+  if (req.method === "POST" && inviteTemplateUpdateMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const index = Number.parseInt(inviteTemplateUpdateMatch[1], 10);
+    const template = String(body.template || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 220);
+    const store = loadStore();
+    const templates = normalizeTargetInviteMessageTemplates(
+      store.settings?.target_invite_message_templates
+    );
+    if (!template || index < 0 || index >= templates.length) {
+      redirect(res, "/admin/invitation");
+      return;
+    }
+    templates[index] = template;
+    store.settings = {
+      ...store.settings,
+      target_invite_message_templates: normalizeTargetInviteMessageTemplates(templates)
+    };
+    saveStore(store);
+    redirect(res, "/admin/invitation");
+    return;
+  }
+
+  const inviteTemplateDeleteMatch = pathname.match(
+    /^\/admin\/invitation\/targets\/templates\/(\d+)\/delete$/
+  );
+  if (req.method === "POST" && inviteTemplateDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const index = Number.parseInt(inviteTemplateDeleteMatch[1], 10);
+    const store = loadStore();
+    const templates = normalizeTargetInviteMessageTemplates(
+      store.settings?.target_invite_message_templates
+    );
+    if (index < 0 || index >= templates.length) {
+      redirect(res, "/admin/invitation");
+      return;
+    }
+    templates.splice(index, 1);
+    store.settings = {
+      ...store.settings,
+      target_invite_message_templates: normalizeTargetInviteMessageTemplates(templates)
     };
     saveStore(store);
     redirect(res, "/admin/invitation");
@@ -2472,6 +2646,17 @@ const handleRequest = async (req, res) => {
     const store = loadStore();
     const invitationFields = getInvitationFields(store);
     const submitted = url.searchParams.get("submitted");
+    const submittedMode = String(url.searchParams.get("submitted_mode") || "").trim();
+    const targetGuest = {
+      name: normalizeInviteRecipientField(
+        url.searchParams.get("target_name"),
+        32
+      ),
+      title: normalizeInviteRecipientField(
+        url.searchParams.get("target_title"),
+        24
+      )
+    };
     const submittedGuest = {
       name: String(url.searchParams.get("guest_name") || "").trim(),
       phone: String(url.searchParams.get("guest_phone") || "").trim(),
@@ -2487,7 +2672,9 @@ const handleRequest = async (req, res) => {
         ),
         fields: invitationFields,
         submitted,
-        submittedGuest
+        submittedMode,
+        submittedGuest,
+        targetGuest
       })
     );
     return;
@@ -2843,6 +3030,8 @@ const handleRequest = async (req, res) => {
     const attending = parseAttendingValue(body.attending);
     const responses = collectInvitationFieldResponses(invitationFields, body);
     responses.attendees = attendees;
+    const targetName = normalizeInviteRecipientField(body.target_name, 32);
+    const targetTitle = normalizeInviteRecipientField(body.target_title, 24);
     const missingFields = getMissingGuestFieldLabels(
       {
         name,
@@ -2886,6 +3075,64 @@ const handleRequest = async (req, res) => {
       guest_phone: phone,
       guest_attendees: attendees
     });
+    if (targetName) {
+      successParams.set("target_name", targetName);
+    }
+    if (targetTitle) {
+      successParams.set("target_title", targetTitle);
+    }
+    redirect(res, `/invite?${successParams.toString()}`);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/invite/quick-rsvp") {
+    const body = await parseBody(req);
+    const targetName = normalizeInviteRecipientField(body.target_name, 32);
+    const targetTitle = normalizeInviteRecipientField(body.target_title, 24);
+    if (!targetName) {
+      sendResponse(res, 400, "缺少专属来宾姓名。", "text/plain");
+      return;
+    }
+    const store = loadStore();
+    const phoneToken = buildOfflinePhoneToken(targetName, targetTitle);
+    const existing =
+      store.guests.find((guest) => guest.phone === phoneToken) ||
+      store.guests.find(
+        (guest) =>
+          String(guest.name || "").trim() === targetName &&
+          String(guest.phone || "").startsWith("offline:")
+      );
+    if (existing) {
+      existing.name = targetName;
+      existing.phone = phoneToken;
+      existing.attending = true;
+      existing.responses = {
+        ...(existing.responses || {}),
+        attendees: String(existing.responses?.attendees || "1")
+      };
+      existing.updated_at = new Date().toISOString();
+    } else {
+      store.guests.push({
+        id: nextId(store, "guests"),
+        name: targetName,
+        phone: phoneToken,
+        attending: true,
+        responses: { attendees: "1" },
+        table_no: "",
+        quick_offline_confirmed: true,
+        updated_at: new Date().toISOString()
+      });
+    }
+    saveStore(store);
+    const successParams = new URLSearchParams({
+      submitted: "1",
+      submitted_mode: "offline_quick",
+      guest_name: targetName,
+      guest_phone: "",
+      guest_attendees: "1"
+    });
+    successParams.set("target_name", targetName);
+    if (targetTitle) successParams.set("target_title", targetTitle);
     redirect(res, `/invite?${successParams.toString()}`);
     return;
   }

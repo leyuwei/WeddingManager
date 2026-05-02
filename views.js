@@ -35,6 +35,128 @@ const buildPublicPageTitle = (settings, fallback) => {
   return `${coupleName}｜${fallback}`;
 };
 
+const normalizeInviteRecipient = (targetGuest = {}) => ({
+  name: String(targetGuest?.name || "")
+    .replace(/\r?\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim(),
+  title: String(targetGuest?.title || "")
+    .replace(/\r?\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+});
+
+const getInviteRecipientDisplayName = (targetGuest = {}) => {
+  const recipient = normalizeInviteRecipient(targetGuest);
+  if (!recipient.name) return "";
+  return `${recipient.name}${recipient.title || ""}`;
+};
+
+const buildInvitePageTitle = (settings, targetGuest) => {
+  const baseTitle = buildPublicPageTitle(settings, "婚礼请柬");
+  const recipientName = getInviteRecipientDisplayName(targetGuest);
+  if (!recipientName) return baseTitle;
+  return `${recipientName}专属｜${baseTitle}`;
+};
+
+const buildTargetInviteUrl = (inviteUrl, targetGuest) => {
+  const recipient = normalizeInviteRecipient(targetGuest);
+  if (!recipient.name) return inviteUrl;
+  try {
+    const parsed = new URL(inviteUrl);
+    parsed.searchParams.set("target_name", recipient.name);
+    if (recipient.title) {
+      parsed.searchParams.set("target_title", recipient.title);
+    } else {
+      parsed.searchParams.delete("target_title");
+    }
+    return parsed.toString();
+  } catch (error) {
+    const params = new URLSearchParams();
+    params.set("target_name", recipient.name);
+    if (recipient.title) {
+      params.set("target_title", recipient.title);
+    }
+    const joiner = inviteUrl.includes("?") ? "&" : "?";
+    return `${inviteUrl}${joiner}${params.toString()}`;
+  }
+};
+
+const normalizeTargetInviteRecipientsForView = (value) => {
+  if (!Array.isArray(value)) return [];
+  const normalized = [];
+  const seen = new Set();
+  value.forEach((item) => {
+    const name = String(item?.name || "")
+      .replace(/\r?\n/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 32);
+    const title = String(item?.title || "")
+      .replace(/\r?\n/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 24);
+    if (!name) return;
+    const key = `${name}|${title}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    normalized.push({ name, title });
+  });
+  return normalized.slice(0, 300);
+};
+
+const toTargetInviteRecipientsText = (recipients = []) =>
+  normalizeTargetInviteRecipientsForView(recipients)
+    .map((item) => `${item.name}${item.title ? `,${item.title}` : ""}`)
+    .join("\n");
+
+const defaultFriendlyInviteMessageTemplates = [
+  "您好！谨代表我们诚挚邀请您拨冗出席婚礼，若蒙莅临，不胜荣幸。",
+  "您好！诚挚邀请您见证我们的人生重要时刻，盼您光临指导。",
+  "您好！一直承蒙关照，特此奉上婚礼请柬，诚邀您莅临共享喜悦。",
+  "您好！在这份重要时刻，我们非常希望能当面表达感谢，诚邀您出席婚礼。"
+];
+
+const normalizeFriendlyInviteTemplatesForView = (value) => {
+  const source = Array.isArray(value) ? value : defaultFriendlyInviteMessageTemplates;
+  const templates = source
+    .map((item) =>
+      String(item || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, 220)
+    )
+    .filter(Boolean);
+  return templates.length ? templates : [...defaultFriendlyInviteMessageTemplates];
+};
+
+const hashText = (value) =>
+  String(value || "").split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+
+const buildFriendlyTargetInviteMessage = ({
+  recipient,
+  inviteUrl,
+  coupleName,
+  index = 0,
+  templates = defaultFriendlyInviteMessageTemplates
+}) => {
+  const salutation = `${recipient.name}${recipient.title || ""}`;
+  const safeCoupleName = String(coupleName || "").trim() || "我们";
+  const safeTemplates = normalizeFriendlyInviteTemplatesForView(templates);
+  const templateIndex =
+    (hashText(`${recipient.name}|${recipient.title || ""}`) + index) %
+    safeTemplates.length;
+  const greetingTemplate = safeTemplates[templateIndex];
+  const greeting = `${salutation}，${greetingTemplate.replace(/^(您好[！!，,。\s]*)/, "")}`
+    .replace(/，\s*，/g, "，")
+    .replace(/\s+/g, " ")
+    .trim();
+  const note =
+    "补充说明：如果您不方便在请柬末尾直接填写出席信息，可以直接点击请柬末尾的“我不填写，已线下沟通”按钮，我们只登记您的出席姓名。";
+  return `${greeting.replace("我们的婚礼", `${safeCoupleName}的婚礼`)}\n附上专属请柬链接：${inviteUrl}\n${note}`;
+};
+
 const renderPublicLogoBadge = ({
   href = "/invite",
   className = "public-site-logo"
@@ -1754,6 +1876,139 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
     "soft_glow"
   );
   const qrForceHttps = settings?.qr_force_https !== false;
+  const targetInviteRecipients = normalizeTargetInviteRecipientsForView(
+    settings?.target_invite_recipients
+  );
+  const targetInviteFriendlyMessageEnabled =
+    settings?.target_invite_friendly_message_enabled === true;
+  const targetInviteIntroBgColor = normalizeHexColor(
+    settings?.target_invite_intro_bg_color,
+    "#7b1f2f"
+  );
+  const targetInviteMessageTemplates = normalizeFriendlyInviteTemplatesForView(
+    settings?.target_invite_message_templates
+  );
+  const buildTargetInviteImageButton = (recipient, inviteUrlValue) =>
+    `<button class="btn ghost small" type="button" data-download-target-image="true" data-target-name="${escapeHtml(
+      recipient.name || ""
+    )}" data-target-title="${escapeHtml(
+      recipient.title || ""
+    )}" data-target-url="${escapeHtml(
+      inviteUrlValue
+    )}" data-target-couple="${escapeHtml(
+      settings?.couple_name || ""
+    )}" data-target-date="${escapeHtml(
+      settings?.wedding_date || ""
+    )}" data-target-location="${escapeHtml(
+      settings?.wedding_location || ""
+    )}" data-target-bg="${escapeHtml(
+      targetInviteIntroBgColor
+    )}">下载邀请图</button>`;
+  const targetInviteRecipientsText = toTargetInviteRecipientsText(
+    targetInviteRecipients
+  );
+  const targetInviteDirectRecipients = targetInviteRecipients;
+  const targetInviteDirectMessages = targetInviteDirectRecipients.map(
+    (item, index) => {
+      const itemUrl = buildTargetInviteUrl(inviteUrl, item);
+      return {
+        displayName: `${item.name}${item.title || ""}`,
+        message: buildFriendlyTargetInviteMessage({
+          recipient: item,
+          inviteUrl: itemUrl,
+          coupleName: settings?.couple_name,
+          index,
+          templates: targetInviteMessageTemplates
+        })
+      };
+    }
+  );
+  const targetInviteDirectRowsHtml = targetInviteDirectMessages
+    .map(
+      (item, index) => `<tr>
+      <td>${index + 1}</td>
+      <td>${escapeHtml(item.displayName)}</td>
+      <td><textarea rows="5" readonly>${escapeHtml(item.message)}</textarea></td>
+      <td>
+        <button class="btn ghost small" type="button" data-copy-target-link="${escapeHtml(
+          item.message
+        )}">复制消息</button>
+        ${buildTargetInviteImageButton(
+          targetInviteDirectRecipients[index],
+          buildTargetInviteUrl(inviteUrl, targetInviteDirectRecipients[index])
+        )}
+      </td>
+    </tr>`
+    )
+    .join("");
+  const targetInviteDirectCopyAll = targetInviteDirectMessages
+    .map((item, index) => `【${index + 1}】${item.message}`)
+    .join("\n\n");
+  const targetInviteBatchRowsHtml = targetInviteRecipients.length
+    ? targetInviteRecipients
+        .map((item, index) => {
+          const displayName = `${item.name}${item.title || ""}`;
+          const itemUrl = buildTargetInviteUrl(inviteUrl, item);
+          const friendlyMessage = buildFriendlyTargetInviteMessage({
+            recipient: item,
+            inviteUrl: itemUrl,
+            coupleName: settings?.couple_name,
+            index,
+            templates: targetInviteMessageTemplates
+          });
+          const copyContent = targetInviteFriendlyMessageEnabled
+            ? friendlyMessage
+            : itemUrl;
+          return `<tr>
+            <td>${index + 1}</td>
+            <td>${escapeHtml(displayName)}</td>
+            <td>${
+              targetInviteFriendlyMessageEnabled
+                ? `<textarea rows="5" readonly>${escapeHtml(friendlyMessage)}</textarea>`
+                : `<code>${escapeHtml(itemUrl)}</code>`
+            }</td>
+            <td>
+              <button class="btn ghost small" type="button" data-copy-target-link="${escapeHtml(
+                copyContent
+              )}">${targetInviteFriendlyMessageEnabled ? "复制消息" : "复制链接"}</button>
+              ${buildTargetInviteImageButton(item, itemUrl)}
+            </td>
+          </tr>`;
+        })
+        .join("")
+    : "";
+  const targetInviteBatchCopyAll = targetInviteRecipients
+    .map((item, index) => {
+      const itemUrl = buildTargetInviteUrl(inviteUrl, item);
+      const friendlyMessage = buildFriendlyTargetInviteMessage({
+        recipient: item,
+        inviteUrl: itemUrl,
+        coupleName: settings?.couple_name,
+        index,
+        templates: targetInviteMessageTemplates
+      });
+      const content = targetInviteFriendlyMessageEnabled ? friendlyMessage : itemUrl;
+      return `【${index + 1}】${content}`;
+    })
+    .join("\n\n");
+  const targetInviteTemplateItemsHtml = targetInviteMessageTemplates
+    .map(
+      (template, index) => `<div class="list-item invitation-field-item">
+      <form method="post" action="/admin/invitation/targets/templates/${index}/update" class="form-grid">
+        <label class="full">
+          模板 ${index + 1}
+          <textarea name="template" rows="3" required>${escapeHtml(template)}</textarea>
+        </label>
+        <div class="inline-actions full">
+          <button class="btn primary" type="submit">保存模板</button>
+        </div>
+      </form>
+      <form method="post" action="/admin/invitation/targets/templates/${index}/delete" class="inline-form section-editor-delete">
+        <button class="btn ghost" type="submit" onclick="return confirm('确认删除该话术模板吗？');">删除模板</button>
+      </form>
+    </div>`
+    )
+    .join("");
   const orderedGuestFields = getOrderedGuestCollectionFields({ settings, fields });
   const routeImageUrls = getWeddingRouteImageUrls(settings);
   const orderedFieldKeysValue = orderedGuestFields
@@ -1895,12 +2150,113 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
         )}" download="invitation-qr.png">下载二维码</a>
       </div>
     </div>
+    <div class="qr-card">
+      <h3>定向发送专用链接</h3>
+      <p>按专属对象逐条生成可直接发送的邀请信息，可单条复制，也可一键复制全部。</p>
+      ${
+        targetInviteDirectMessages.length
+          ? `<div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>对象</th>
+                    <th>邀请信息</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>${targetInviteDirectRowsHtml}</tbody>
+              </table>
+            </div>
+            <div class="inline-actions">
+              <button class="btn ghost" type="button" data-copy-target-all="${escapeHtml(
+                targetInviteDirectCopyAll
+              )}">复制全部邀请信息</button>
+            </div>`
+          : `<div class="muted">请先在下方“专属请柬批量链接”中配置定向对象名单。</div>`
+      }
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>专属请柬批量链接</h2>
+  <p class="muted">支持手动填写或导入名单。每行格式：姓名,称呼（称呼可省略），并支持独立保存生效。</p>
+  <form id="targetInviteForm" method="post" action="/admin/invitation/targets/save" class="form-grid">
+    <label>
+      专属首屏背景色
+      <input type="color" name="target_invite_intro_bg_color" value="${escapeHtml(
+        targetInviteIntroBgColor
+      )}" />
+    </label>
+    <div class="field-required-wrap full">
+      <label class="required-switch" for="targetInviteFriendlyMessageEnabled">
+        <span>开启专属请柬友好消息发送模式</span>
+        <input type="checkbox" id="targetInviteFriendlyMessageEnabled" name="target_invite_friendly_message_enabled" ${
+          targetInviteFriendlyMessageEnabled ? "checked" : ""
+        } />
+      </label>
+      <p class="muted">开启后，批量展示内容会自动改为“礼貌邀请话术 + 专属链接 + 线下快捷说明”，并按对象随机套用多套模板。</p>
+    </div>
+    <label class="full">
+      批量名单（每行一个）
+      <textarea id="targetInviteRecipientsText" name="target_invite_recipients_text" rows="6" placeholder="示例：&#10;张三,先生&#10;李四,女士">${escapeHtml(
+        targetInviteRecipientsText
+      )}</textarea>
+    </label>
+    <label>
+      导入名单文件（.txt/.csv）
+      <input type="file" id="targetInviteRecipientsFile" accept=".txt,.csv,text/plain,text/csv" />
+    </label>
+    <div class="inline-actions">
+      <button class="btn ghost" type="button" id="targetInviteRecipientsImport">导入并追加到名单</button>
+      <span class="muted" id="targetInviteRecipientsStatus">导入后记得点击“保存并生效”。</span>
+    </div>
+    <div class="section-editor-actions full">
+      <button class="btn primary" type="submit">保存并生效</button>
+    </div>
+  </form>
+  ${
+    targetInviteRecipients.length
+      ? `<div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>对象</th>
+                <th>${targetInviteFriendlyMessageEnabled ? "友好邀请消息（可直接发送）" : "专属链接"}</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>${targetInviteBatchRowsHtml}</tbody>
+          </table>
+        </div>
+        <div class="inline-actions">
+          <button class="btn ghost" type="button" data-copy-target-all="${escapeHtml(
+            targetInviteBatchCopyAll
+          )}">${targetInviteFriendlyMessageEnabled ? "复制全部消息" : "复制全部链接"}</button>
+        </div>`
+      : `<p class="muted">尚未生成批量专属链接。</p>`
+  }
+  <h3>友好邀请话术模板</h3>
+  <p class="muted">可新增、编辑、删除模板。系统会在批量对象中随机套用。</p>
+  <form method="post" action="/admin/invitation/targets/templates" class="form-grid">
+    <label class="full">
+      新增模板
+      <textarea name="template" rows="3" required placeholder="示例：您好！诚挚邀请您拨冗出席我们的婚礼，盼您莅临指导。"></textarea>
+    </label>
+    <div class="section-editor-actions full">
+      <button class="btn primary" type="submit">新增模板</button>
+    </div>
+  </form>
+  <div class="list invitation-field-list">
+    ${targetInviteTemplateItemsHtml}
   </div>
 </section>
 
 <section class="card">
   <h1>请柬基础信息</h1>
-  <form method="post" action="/admin/invitation/settings" class="form-grid invitation-settings-form">
+  <form id="invitationSettingsForm" method="post" action="/admin/invitation/settings" class="form-grid invitation-settings-form">
     <div class="full invitation-settings-group" data-settings-group="basic">
       <div class="invitation-settings-head">
         <h3>基础信息</h3>
@@ -2678,6 +3034,274 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
       const invitationSettingsForm = document.querySelector(
         "form.invitation-settings-form"
       );
+      const targetRecipientsTextarea = document.getElementById(
+        "targetInviteRecipientsText"
+      );
+      const targetRecipientsFile = document.getElementById(
+        "targetInviteRecipientsFile"
+      );
+      const targetRecipientsImportButton = document.getElementById(
+        "targetInviteRecipientsImport"
+      );
+      const targetRecipientsStatus = document.getElementById(
+        "targetInviteRecipientsStatus"
+      );
+      if (
+        targetRecipientsTextarea &&
+        targetRecipientsFile &&
+        targetRecipientsImportButton &&
+        targetRecipientsStatus
+      ) {
+        const setTargetStatus = (message, isError = false) => {
+          targetRecipientsStatus.textContent = message;
+          targetRecipientsStatus.classList.toggle("alert", isError);
+          targetRecipientsStatus.classList.toggle("muted", !isError);
+        };
+        targetRecipientsImportButton.addEventListener("click", () => {
+          const file = targetRecipientsFile.files && targetRecipientsFile.files[0];
+          if (!file) {
+            setTargetStatus("请先选择要导入的名单文件。", true);
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = () => {
+            const imported = String(reader.result || "")
+              .replaceAll(String.fromCharCode(13), "")
+              .split(String.fromCharCode(10))
+              .map((line) => line.trim())
+              .filter(Boolean);
+            if (!imported.length) {
+              setTargetStatus("文件中没有读取到有效名单。", true);
+              return;
+            }
+            const existing = String(targetRecipientsTextarea.value || "")
+              .replaceAll(String.fromCharCode(13), "")
+              .split(String.fromCharCode(10))
+              .map((line) => line.trim())
+              .filter(Boolean);
+            const merged = [...new Set([...existing, ...imported])];
+            targetRecipientsTextarea.value = merged.join(String.fromCharCode(10));
+            setTargetStatus(
+              "已导入 " + imported.length + " 条名单，请点击“保存并生效”。"
+            );
+          };
+          reader.onerror = () => {
+            setTargetStatus("读取文件失败，请重试。", true);
+          };
+          reader.readAsText(file, "utf-8");
+        });
+      }
+      document.querySelectorAll("[data-copy-target-link]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const link = String(button.getAttribute("data-copy-target-link") || "");
+          if (!link) return;
+          const originalText = button.textContent;
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(link);
+            } else {
+              const temp = document.createElement("textarea");
+              temp.value = link;
+              document.body.appendChild(temp);
+              temp.select();
+              document.execCommand("copy");
+              temp.remove();
+            }
+            button.textContent = "已复制";
+            setTimeout(() => {
+              button.textContent = originalText || "复制链接";
+            }, 1200);
+          } catch (error) {
+            button.textContent = "复制失败";
+            setTimeout(() => {
+              button.textContent = originalText || "复制链接";
+            }, 1200);
+          }
+        });
+      });
+      document.querySelectorAll("[data-copy-target-all]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const payload = String(button.getAttribute("data-copy-target-all") || "");
+          if (!payload) return;
+          const originalText = button.textContent;
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(payload);
+            } else {
+              const temp = document.createElement("textarea");
+              temp.value = payload;
+              document.body.appendChild(temp);
+              temp.select();
+              document.execCommand("copy");
+              temp.remove();
+            }
+            button.textContent = "已复制全部";
+            setTimeout(() => {
+              button.textContent = originalText || "复制全部";
+            }, 1200);
+          } catch (error) {
+            button.textContent = "复制失败";
+            setTimeout(() => {
+              button.textContent = originalText || "复制全部";
+            }, 1200);
+          }
+        });
+      });
+      const loadImage = (url) =>
+        new Promise((resolve, reject) => {
+          const image = new Image();
+          image.crossOrigin = "anonymous";
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error("image-load-failed"));
+          image.src = url;
+        });
+      const drawRoundedRect = (ctx, x, y, width, height, radius) => {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+      };
+      const wrapCanvasText = (ctx, text, maxWidth) => {
+        const chars = Array.from(String(text || ""));
+        const lines = [];
+        let current = "";
+        chars.forEach((char) => {
+          const candidate = current + char;
+          if (ctx.measureText(candidate).width > maxWidth && current) {
+            lines.push(current);
+            current = char;
+            return;
+          }
+          current = candidate;
+        });
+        if (current) lines.push(current);
+        return lines;
+      };
+      document.querySelectorAll("[data-download-target-image='true']").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const targetName = String(button.dataset.targetName || "").trim();
+          const targetTitle = String(button.dataset.targetTitle || "").trim();
+          const inviteUrlValue = String(button.dataset.targetUrl || "").trim();
+          const coupleName = String(button.dataset.targetCouple || "").trim();
+          const weddingDate = String(button.dataset.targetDate || "").trim();
+          const weddingLocation = String(button.dataset.targetLocation || "").trim();
+          const backgroundColor = String(button.dataset.targetBg || "#7b1f2f").trim();
+          if (!targetName || !inviteUrlValue) return;
+          const originalText = button.textContent;
+          button.disabled = true;
+          button.textContent = "正在生成...";
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = 1125;
+            canvas.height = 2000;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) throw new Error("canvas-not-supported");
+            ctx.fillStyle = backgroundColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            gradient.addColorStop(0, "rgba(255,255,255,0.08)");
+            gradient.addColorStop(1, "rgba(255,255,255,0)");
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            drawRoundedRect(ctx, 84, 84, canvas.width - 168, canvas.height - 168, 42);
+            ctx.fillStyle = "rgba(255,255,255,0.12)";
+            ctx.fill();
+            ctx.restore();
+
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "600 54px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("专属定向请柬", canvas.width / 2, 220);
+
+            ctx.font = "500 72px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("诚挚邀请", canvas.width / 2, 380);
+
+            ctx.font = "800 92px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            const guestLines = wrapCanvasText(
+              ctx,
+              targetName + targetTitle,
+              canvas.width - 240
+            );
+            guestLines.forEach((line, index) => {
+              ctx.fillText(line, canvas.width / 2, 510 + index * 110);
+            });
+
+            const infoStartY = 510 + guestLines.length * 110 + 40;
+            ctx.font = "500 56px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("见证我们的幸福时刻", canvas.width / 2, infoStartY);
+
+            ctx.save();
+            drawRoundedRect(ctx, 120, infoStartY + 110, canvas.width - 240, 420, 36);
+            ctx.fillStyle = "rgba(255,255,255,0.9)";
+            ctx.fill();
+            ctx.restore();
+
+            ctx.fillStyle = backgroundColor;
+            ctx.font = "700 62px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText(coupleName || "新人姓名", canvas.width / 2, infoStartY + 210);
+
+            ctx.font = "600 40px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillStyle = "#53333c";
+            ctx.fillText("婚礼时间", canvas.width / 2, infoStartY + 300);
+            ctx.font = "500 38px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText(weddingDate || "待设置婚礼时间", canvas.width / 2, infoStartY + 355);
+
+            ctx.font = "600 40px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("婚礼地点", canvas.width / 2, infoStartY + 440);
+            ctx.font = "500 38px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            const locationLines = wrapCanvasText(
+              ctx,
+              weddingLocation || "待设置婚礼地点",
+              canvas.width - 320
+            );
+            locationLines.slice(0, 2).forEach((line, index) => {
+              ctx.fillText(line, canvas.width / 2, infoStartY + 495 + index * 48);
+            });
+
+            const qrSize = 420;
+            const qrX = (canvas.width - qrSize) / 2;
+            const qrY = canvas.height - 650;
+            ctx.save();
+            drawRoundedRect(ctx, qrX - 26, qrY - 26, qrSize + 52, qrSize + 52, 28);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.restore();
+
+            const qrCodeUrl = "https://api.qrserver.com/v1/create-qr-code/?size=800x800&margin=0&data=" +
+              encodeURIComponent(inviteUrlValue);
+            const qrImage = await loadImage(qrCodeUrl);
+            ctx.drawImage(qrImage, qrX, qrY, qrSize, qrSize);
+
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "600 34px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("扫码查看完整请柬", canvas.width / 2, canvas.height - 150);
+
+            const link = document.createElement("a");
+            link.href = canvas.toDataURL("image/png");
+            link.download = (targetName + (targetTitle || "") + "-专属邀请图.png")
+              .replace(/[\\/:*?\"<>|]/g, "-");
+            link.click();
+            button.textContent = "已下载";
+          } catch (error) {
+            button.textContent = "生成失败";
+          } finally {
+            window.setTimeout(() => {
+              button.disabled = false;
+              button.textContent = originalText || "下载邀请图";
+            }, 1200);
+          }
+        });
+      });
       if (invitationSettingsForm) {
         const bindToggleGroup = (toggleName, dependentNames) => {
           const toggle = invitationSettingsForm.querySelector(
@@ -4214,7 +4838,15 @@ const renderAdminCheckins = ({
   );
 };
 
-const renderInvite = ({ settings, sections, fields, submitted, submittedGuest }) => {
+const renderInvite = ({
+  settings,
+  sections,
+  fields,
+  submitted,
+  submittedMode,
+  submittedGuest,
+  targetGuest
+}) => {
   const isSubmitted = String(submitted) === "1";
   const guestFontScale = clampNumber(settings?.guest_font_scale, 1, 2.5, 1.1);
   const inviteMusicUrl = settings?.invitation_music_url || "";
@@ -4334,7 +4966,16 @@ const renderInvite = ({ settings, sections, fields, submitted, submittedGuest })
     settings?.swipe_hint_style,
     "soft_glow"
   );
-  const invitePageTitle = buildPublicPageTitle(settings, "婚礼请柬");
+  const inviteRecipient = normalizeInviteRecipient(targetGuest);
+  const inviteRecipientDisplayName = getInviteRecipientDisplayName(inviteRecipient);
+  const isTargetedInvite = Boolean(inviteRecipient.name);
+  const isOfflineQuickSubmitted = String(submittedMode || "").trim() === "offline_quick";
+  const targetInviteIntroBgColor = normalizeHexColor(
+    settings?.target_invite_intro_bg_color,
+    "#7b1f2f"
+  );
+  const genericHeroMessage = "诚挚邀请您见证我们的幸福时刻";
+  const invitePageTitle = buildInvitePageTitle(settings, inviteRecipient);
   const renderCountdownCard = ({ scopeClass, positionClass }) => {
     if (!countdownEnabled || !hasCountdownTarget) return "";
     return `<div class="countdown-card countdown-theme-${escapeHtml(
@@ -4470,6 +5111,8 @@ const renderInvite = ({ settings, sections, fields, submitted, submittedGuest })
     data-font-heading-key="${escapeHtml(inviteFontHeadingKey)}"
     data-font-couple-key="${escapeHtml(inviteFontCoupleKey)}"
     data-font-countdown-key="${escapeHtml(inviteFontCountdownKey)}"
+    data-targeted-invite="${isTargetedInvite ? "true" : "false"}"
+    data-submitted-state="${isSubmitted ? "true" : "false"}"
     style="--guest-font-scale: ${guestFontScale}; --hero-text-color: ${heroTextColor}; --hero-text-color-rgb: ${heroTextRgb}; --hero-overlay-color-rgb: ${heroOverlayRgb}; --hero-overlay-opacity: ${effectiveHeroOverlayOpacity}; --invite-font-base: ${escapeHtml(
       inviteFontBaseStack
     )}; --invite-font-heading: ${escapeHtml(
@@ -4524,7 +5167,9 @@ const renderInvite = ({ settings, sections, fields, submitted, submittedGuest })
               }">
             ${successCountdownHtml}
             <div class="invite-success-text invite-text-anim" data-text-anim="true" style="--text-anim-order:2;">
-              已收到您的信息，感谢祝福！<br>期待与您及亲朋在婚礼现场相见。
+              ${isOfflineQuickSubmitted
+                ? `${inviteRecipientDisplayName ? `${escapeHtml(inviteRecipientDisplayName)}，` : ""}已为您登记“线下沟通确认出席”。<br>后续管理员会根据线下沟通内容补充详细信息。`
+                : `${inviteRecipientDisplayName ? `${escapeHtml(inviteRecipientDisplayName)}，` : ""}已收到您的信息，感谢祝福！<br>期待与您及亲朋在婚礼现场相见。`}
             </div>
             <div class="invite-success-card invite-text-anim" data-text-anim="true" style="--text-anim-order:3;">
               <canvas id="inviteCardCanvas" width="720" height="480"></canvas>
@@ -4545,6 +5190,22 @@ const renderInvite = ({ settings, sections, fields, submitted, submittedGuest })
           </div>`
               : `
 
+      ${
+        isTargetedInvite
+          ? `<section class="target-invite-intro" style="background:${escapeHtml(
+              targetInviteIntroBgColor
+            )}">
+              <div class="target-invite-intro-inner">
+                <h2 class="target-invite-intro-title invite-text-anim" data-text-anim="true" style="--text-anim-order:1;">专属定向请柬</h2>
+                <p class="target-invite-intro-message invite-text-anim" data-text-anim="true" style="--text-anim-order:2;">
+                  诚挚邀请<strong>${escapeHtml(inviteRecipientDisplayName)}</strong><br/>
+                  见证我们的幸福时刻<br/>
+                  <span>继续下滑查看请柬内容</span>
+                </p>
+              </div>
+            </section>`
+          : ""
+      }
       <section class="hero" style="background-image: url('${escapeHtml(
         heroImageUrl
       )}')">
@@ -4563,7 +5224,7 @@ const renderInvite = ({ settings, sections, fields, submitted, submittedGuest })
           </h1>
           <div class="hero-main-text">
             <p class="hero-message invite-text-anim" data-text-anim="true" style="--text-anim-order:3;">${escapeHtml(
-              settings.hero_message || ""
+              genericHeroMessage
             )}</p>
             <div class="hero-meta invite-text-anim" data-text-anim="true" style="--text-anim-order:4;">
               <span>${escapeHtml(settings.wedding_date || "")}</span>
@@ -4628,13 +5289,36 @@ const renderInvite = ({ settings, sections, fields, submitted, submittedGuest })
 	      <section class="rsvp" id="rsvp">
 	        <div class="rsvp-card">
 	          <h2 class="invite-text-anim" data-text-anim="true" style="--text-anim-order:1;">填写来宾信息</h2>
+            ${
+              isTargetedInvite
+                ? `<div class="invite-text-anim" data-text-anim="true" style="--text-anim-order:1.5;">
+                    <form method="post" action="/invite/quick-rsvp" class="inline-form target-quick-rsvp-form">
+                      <input type="hidden" name="target_name" value="${escapeHtml(
+                        inviteRecipient.name
+                      )}" />
+                      <input type="hidden" name="target_title" value="${escapeHtml(
+                        inviteRecipient.title
+                      )}" />
+                      <button class="btn primary target-quick-rsvp-btn" type="submit">我不填写，已线下沟通</button>
+                    </form>
+                  </div>`
+                : ""
+            }
 	          <form method="post" action="/invite/rsvp" class="form-stack">
+              <input type="hidden" name="target_name" value="${escapeHtml(
+                inviteRecipient.name
+              )}" />
+              <input type="hidden" name="target_title" value="${escapeHtml(
+                inviteRecipient.title
+              )}" />
 	            ${orderedGuestFields
                 .map((field) => {
                   if (field.is_builtin && field.field_key === "name") {
                     return `<label>
                       姓名
-                      <input type="text" name="name" required />
+                      <input type="text" name="name" value="${escapeHtml(
+                        inviteRecipient.name || ""
+                      )}" ${isTargetedInvite ? "readonly" : ""} required />
                     </label>`;
                   }
                   if (field.is_builtin && field.field_key === "phone") {
@@ -4916,6 +5600,27 @@ const renderInvite = ({ settings, sections, fields, submitted, submittedGuest })
     })();
 
     ${renderFestiveLayerScript()}
+
+    (() => {
+      const container = document.querySelector(".invite");
+      const introSection = document.querySelector(".target-invite-intro");
+      if (!container) return;
+      const isTargeted = document.body.dataset.targetedInvite === "true";
+      const isSubmittedState = document.body.dataset.submittedState === "true";
+      if (!isTargeted || isSubmittedState || !introSection) return;
+      if (window.location.hash) return;
+      const focusIntro = () => {
+        if (typeof introSection.scrollIntoView === "function") {
+          introSection.scrollIntoView({ block: "start", behavior: "auto" });
+        } else {
+          container.scrollTop = 0;
+        }
+      };
+      // Force dedicated intro page to be visible first in targeted mode.
+      focusIntro();
+      window.requestAnimationFrame(focusIntro);
+      window.setTimeout(focusIntro, 80);
+    })();
 
     (() => {
       const nodes = Array.from(document.querySelectorAll("[data-text-anim='true']"));

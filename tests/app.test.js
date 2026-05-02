@@ -37,6 +37,8 @@ test("loads invite page", async () => {
   const text = await response.text();
   assert.strictEqual(response.status, 200);
   assert.ok(text.includes("婚礼请柬"));
+  assert.ok(text.includes("诚挚邀请您见证我们的幸福时刻"));
+  assert.ok(!text.includes("专属定向请柬"));
 });
 
 test("includes couple name in invite and checkin page titles", async () => {
@@ -73,6 +75,316 @@ test("includes couple name in invite and checkin page titles", async () => {
     reset.settings = previousSettings;
     saveStore(reset);
   }
+});
+
+test("supports targeted invite title and recipient rendering", async () => {
+  const store = loadStore();
+  const previousSettings = { ...store.settings };
+  store.settings = {
+    ...store.settings,
+    couple_name: "赵明 和 钱雨"
+  };
+  saveStore(store);
+
+  try {
+    const targetName = "张三";
+    const targetTitle = "先生";
+    const response = await fetch(
+      `${baseUrl}/invite?target_name=${encodeURIComponent(
+        targetName
+      )}&target_title=${encodeURIComponent(targetTitle)}`
+    );
+    const text = await response.text();
+    assert.strictEqual(response.status, 200);
+    assert.ok(
+      text.includes("<title>张三先生专属｜赵明 和 钱雨｜婚礼请柬</title>")
+    );
+    assert.ok(text.includes("专属定向请柬"));
+    assert.ok(text.includes('data-targeted-invite="true"'));
+    assert.ok(text.includes('class="target-invite-intro"'));
+    assert.ok(text.includes("诚挚邀请<strong>张三先生</strong>"));
+    assert.ok(text.includes("见证我们的幸福时刻"));
+    assert.ok(text.includes("继续下滑查看请柬内容"));
+    assert.ok(
+      text.includes('<input type="text" name="name" value="张三" readonly required />')
+    );
+    assert.ok(text.includes("我不填写，已线下沟通"));
+    assert.ok(text.includes('action="/invite/quick-rsvp"'));
+    assert.ok(
+      text.includes(
+        `<input type="hidden" name="target_name" value="${targetName}" />`
+      )
+    );
+    assert.ok(
+      text.includes(
+        `<input type="hidden" name="target_title" value="${targetTitle}" />`
+      )
+    );
+  } finally {
+    const reset = loadStore();
+    reset.settings = previousSettings;
+    saveStore(reset);
+  }
+});
+
+test("preserves targeted invite params after rsvp submission", async () => {
+  const response = await fetch(`${baseUrl}/invite/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "定向来宾",
+      phone: "13900008888",
+      attending: "yes",
+      attendees: "2",
+      target_name: "王老师",
+      target_title: "老师"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(response.status, 302);
+  assert.strictEqual(
+    response.headers.get("location"),
+    "/invite?submitted=1&guest_name=%E5%AE%9A%E5%90%91%E6%9D%A5%E5%AE%BE&guest_phone=13900008888&guest_attendees=2&target_name=%E7%8E%8B%E8%80%81%E5%B8%88&target_title=%E8%80%81%E5%B8%88"
+  );
+});
+
+test("renders batch targeted invite links in admin invitation page", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const settingsResponse = await fetch(`${baseUrl}/admin/invitation/targets/save`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      target_invite_recipients_text: "张三,先生\n李四,女士\n王五"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(settingsResponse.status, 302);
+
+  const invitationResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const invitationText = await invitationResponse.text();
+  assert.strictEqual(invitationResponse.status, 200);
+  assert.ok(invitationText.includes("专属请柬批量链接"));
+  assert.ok(invitationText.includes('id="targetInviteForm"'));
+  assert.ok(invitationText.includes('action="/admin/invitation/targets/save"'));
+  assert.ok(invitationText.includes('name="target_invite_recipients_text"'));
+  assert.ok(!invitationText.includes("默认定向对象姓名（可选）"));
+  assert.ok(!invitationText.includes("默认定向对象称呼（可选）"));
+  assert.ok(
+    invitationText.includes(
+      "target_name=%E5%BC%A0%E4%B8%89&target_title=%E5%85%88%E7%94%9F"
+    )
+  );
+  assert.ok(
+    invitationText.includes(
+      "target_name=%E6%9D%8E%E5%9B%9B&target_title=%E5%A5%B3%E5%A3%AB"
+    )
+  );
+  assert.ok(invitationText.includes("data-copy-target-link="));
+  assert.ok(invitationText.includes("下载邀请图"));
+  assert.ok(invitationText.includes('data-download-target-image="true"'));
+  assert.ok(invitationText.includes('data-target-couple="'));
+  assert.ok(invitationText.includes('data-target-date="'));
+  assert.ok(invitationText.includes('data-target-location="'));
+});
+
+test("renders friendly invite messages for batch links when enabled", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const settingsResponse = await fetch(`${baseUrl}/admin/invitation/targets/save`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      target_invite_friendly_message_enabled: "on",
+      target_invite_recipients_text: "张三,先生\n李四,老师"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(settingsResponse.status, 302);
+
+  const invitationResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const invitationText = await invitationResponse.text();
+  assert.strictEqual(invitationResponse.status, 200);
+  assert.ok(invitationText.includes("开启专属请柬友好消息发送模式"));
+  assert.ok(invitationText.includes("友好邀请消息（可直接发送）"));
+  assert.ok(invitationText.includes("附上专属请柬链接："));
+  assert.ok(invitationText.includes("我不填写，已线下沟通"));
+  assert.ok(invitationText.includes("复制消息"));
+  assert.ok(invitationText.includes("复制全部消息"));
+});
+
+test("does not show targeted intro for generic invite even when target recipients exist", async () => {
+  const store = loadStore();
+  const previousSettings = { ...store.settings };
+  store.settings = {
+    ...store.settings,
+    target_invite_recipients: [{ name: "张三", title: "先生" }],
+    target_invite_intro_bg_color: "#884455"
+  };
+  saveStore(store);
+
+  try {
+    const response = await fetch(`${baseUrl}/invite`);
+    const text = await response.text();
+    assert.strictEqual(response.status, 200);
+    assert.ok(!text.includes("专属定向请柬"));
+    assert.ok(!text.includes('data-targeted-invite="true"'));
+    assert.ok(text.includes("诚挚邀请您见证我们的幸福时刻"));
+  } finally {
+    const reset = loadStore();
+    reset.settings = previousSettings;
+    saveStore(reset);
+  }
+});
+
+test("supports add update delete friendly invite templates", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const addResponse = await fetch(`${baseUrl}/admin/invitation/targets/templates`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      template: "您好！这是模板新增测试，诚邀您莅临指导。"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(addResponse.status, 302);
+
+  const invitationResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const invitationText = await invitationResponse.text();
+  assert.strictEqual(invitationResponse.status, 200);
+  assert.ok(invitationText.includes("友好邀请话术模板"));
+  assert.ok(invitationText.includes("模板新增测试"));
+
+  const match = invitationText.match(
+    /action="\/admin\/invitation\/targets\/templates\/(\d+)\/update"[\s\S]*?模板新增测试/
+  );
+  assert.ok(match);
+  const index = match[1];
+
+  const updateResponse = await fetch(
+    `${baseUrl}/admin/invitation/targets/templates/${index}/update`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        cookie
+      },
+      body: new URLSearchParams({
+        template: "您好！这是模板编辑测试，期待与您现场相见。"
+      }),
+      redirect: "manual"
+    }
+  );
+  assert.strictEqual(updateResponse.status, 302);
+
+  const afterUpdateResponse = await fetch(`${baseUrl}/admin/invitation`, {
+    headers: { cookie }
+  });
+  const afterUpdateText = await afterUpdateResponse.text();
+  assert.ok(afterUpdateText.includes("模板编辑测试"));
+
+  const deleteResponse = await fetch(
+    `${baseUrl}/admin/invitation/targets/templates/${index}/delete`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        cookie
+      },
+      redirect: "manual"
+    }
+  );
+  assert.strictEqual(deleteResponse.status, 302);
+});
+
+test("supports quick offline confirmation for targeted invite", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const requiredFieldResponse = await fetch(`${baseUrl}/admin/invitation/fields`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie
+    },
+    body: new URLSearchParams({
+      label: "线下备注",
+      field_key: "offline_note_required_test",
+      field_type: "text",
+      required: "on"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(requiredFieldResponse.status, 302);
+
+  const quickResponse = await fetch(`${baseUrl}/invite/quick-rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      target_name: "线下确认来宾",
+      target_title: "女士"
+    }),
+    redirect: "manual"
+  });
+  assert.strictEqual(quickResponse.status, 302);
+  const location = quickResponse.headers.get("location") || "";
+  assert.ok(location.includes("submitted_mode=offline_quick"));
+  assert.ok(location.includes("target_name=%E7%BA%BF%E4%B8%8B%E7%A1%AE%E8%AE%A4%E6%9D%A5%E5%AE%BE"));
+
+  const store = loadStore();
+  const guest = (store.guests || []).find((item) => item.name === "线下确认来宾");
+  assert.ok(guest);
+  assert.strictEqual(guest.attending, true);
+  assert.strictEqual(String(guest.responses?.attendees || ""), "1");
+  assert.ok(String(guest.phone || "").startsWith("offline:"));
+
+  const submittedResponse = await fetch(`${baseUrl}${location}`);
+  const submittedText = await submittedResponse.text();
+  assert.strictEqual(submittedResponse.status, 200);
+  assert.ok(submittedText.includes("已为您登记“线下沟通确认出席”"));
 });
 
 test("renders favicon and logo on login and qr entry pages", async () => {

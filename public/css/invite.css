@@ -434,6 +434,46 @@ button {
   margin: 0;
 }
 
+.target-invite-intro {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  text-align: center;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  flex-shrink: 0;
+}
+
+.target-invite-intro-inner {
+  color: #fff;
+  max-width: 760px;
+}
+
+.target-invite-intro-title {
+  margin: 0 0 16px;
+  font-size: calc(34px * var(--guest-font-scale));
+  letter-spacing: 1.2px;
+}
+
+.target-invite-intro-message {
+  margin: 0;
+  font-size: calc(26px * var(--guest-font-scale));
+  line-height: 1.6;
+}
+
+.target-invite-intro-message strong {
+  font-weight: 800;
+}
+
+.target-invite-intro-message span {
+  display: inline-block;
+  margin-top: 8px;
+  opacity: 0.92;
+  font-size: calc(20px * var(--guest-font-scale));
+}
+
 .hero-overlay.hero-name-position-top .couple-name {
   position: absolute;
   top: 48px;
@@ -889,6 +929,21 @@ button {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.target-quick-rsvp-form {
+  display: block;
+  width: 100%;
+}
+
+.target-quick-rsvp-btn {
+  display: block;
+  width: 100%;
+  padding: 16px 18px;
+  font-size: calc(18px * var(--guest-font-scale));
+  line-height: 1.45;
+  border-radius: 14px;
+  margin-top: 4px;
 }
 
 label {
