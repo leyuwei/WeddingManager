@@ -10,6 +10,7 @@ const {
   renderDashboard,
   renderAdmins,
   renderInvitation,
+  renderTargetInviteCollaborator,
   renderGuests,
   renderTablePrint,
   renderSeatCards,
@@ -22,8 +23,10 @@ const {
 } = require("./views");
 
 const sessions = new Map();
+const targetInviteCollaboratorSessions = new Map();
 const SESSION_COOKIE_NAME = "wm_session_id";
 const LEGACY_SESSION_COOKIE_NAME = "session_id";
+const TARGET_INVITE_COLLAB_COOKIE_NAME = "wm_target_invite_collab_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
 
 const safeDecodeURIComponent = (value) => {
@@ -59,6 +62,39 @@ const createSession = (req, res, adminId) => {
   res.setHeader(
     "Set-Cookie",
     `${SESSION_COOKIE_NAME}=${sessionId}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_SECONDS}${secureAttribute}`
+  );
+};
+
+const getTargetInviteCollaboratorSession = (req) => {
+  const cookies = parseCookies(req.headers.cookie || "");
+  const sessionId = cookies[TARGET_INVITE_COLLAB_COOKIE_NAME];
+  if (!sessionId) return null;
+  return targetInviteCollaboratorSessions.get(sessionId) || null;
+};
+
+const createTargetInviteCollaboratorSession = (req, res, passwordHash) => {
+  const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  targetInviteCollaboratorSessions.set(sessionId, {
+    passwordHash,
+    createdAt: Date.now()
+  });
+  const secureAttribute = isSecureRequest(req) ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `${TARGET_INVITE_COLLAB_COOKIE_NAME}=${sessionId}; HttpOnly; Path=/invite/collab; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_SECONDS}${secureAttribute}`
+  );
+};
+
+const destroyTargetInviteCollaboratorSession = (req, res) => {
+  const cookies = parseCookies(req.headers.cookie || "");
+  const currentSessionId = cookies[TARGET_INVITE_COLLAB_COOKIE_NAME];
+  if (currentSessionId) {
+    targetInviteCollaboratorSessions.delete(currentSessionId);
+  }
+  const secureAttribute = isSecureRequest(req) ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `${TARGET_INVITE_COLLAB_COOKIE_NAME}=; HttpOnly; Path=/invite/collab; SameSite=Lax; Max-Age=0${secureAttribute}`
   );
 };
 
@@ -718,6 +754,12 @@ const normalizeInviteRecipientField = (value, maxLength = 24) =>
     .replace(/\s+/g, " ")
     .slice(0, maxLength);
 
+const normalizeTargetInviteCollabPassword = (value, maxLength = 64) =>
+  String(value || "")
+    .trim()
+    .replace(/\r?\n/g, "")
+    .slice(0, maxLength);
+
 const normalizeTargetInviteRecipients = (value, maxItems = 300) => {
   const lines = Array.isArray(value)
     ? value
@@ -771,6 +813,58 @@ const normalizeTargetInviteMessageTemplates = (value, maxItems = 20) => {
   });
   if (!templates.length) return [...defaultFriendlyInviteMessageTemplates];
   return templates.slice(0, maxItems);
+};
+
+const buildTargetInviteUrl = (inviteUrl, targetGuest) => {
+  const recipient = {
+    name: normalizeInviteRecipientField(targetGuest?.name, 32),
+    title: normalizeInviteRecipientField(targetGuest?.title, 24)
+  };
+  if (!recipient.name) return inviteUrl;
+  try {
+    const parsed = new URL(inviteUrl);
+    parsed.searchParams.set("target_name", recipient.name);
+    if (recipient.title) {
+      parsed.searchParams.set("target_title", recipient.title);
+    } else {
+      parsed.searchParams.delete("target_title");
+    }
+    return parsed.toString();
+  } catch (error) {
+    const params = new URLSearchParams();
+    params.set("target_name", recipient.name);
+    if (recipient.title) {
+      params.set("target_title", recipient.title);
+    }
+    const joiner = inviteUrl.includes("?") ? "&" : "?";
+    return `${inviteUrl}${joiner}${params.toString()}`;
+  }
+};
+
+const hashText = (value) =>
+  String(value || "").split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+
+const buildFriendlyTargetInviteMessage = ({
+  recipient,
+  inviteUrl,
+  coupleName,
+  index = 0,
+  templates = defaultFriendlyInviteMessageTemplates
+}) => {
+  const name = normalizeInviteRecipientField(recipient?.name, 32);
+  const title = normalizeInviteRecipientField(recipient?.title, 24);
+  if (!name) return "";
+  const safeCoupleName = String(coupleName || "").trim() || "我们";
+  const safeTemplates = normalizeTargetInviteMessageTemplates(templates);
+  const templateIndex = (hashText(`${name}|${title}`) + index) % safeTemplates.length;
+  const greetingTemplate = safeTemplates[templateIndex];
+  const greeting = `${name}${title}，${greetingTemplate.replace(/^(您好[！!，,。\s]*)/, "")}`
+    .replace(/，\s*，/g, "，")
+    .replace(/\s+/g, " ")
+    .trim();
+  const note =
+    "补充说明：如果您不方便在请柬末尾直接填写出席信息，可以直接点击请柬末尾的“我不填写，已线下沟通”按钮，我们只登记您的出席姓名。";
+  return `${greeting.replace("我们的婚礼", `${safeCoupleName}的婚礼`)}\n附上专属请柬链接：${inviteUrl}\n${note}`;
 };
 
 const buildOfflinePhoneToken = (name, title = "") =>
@@ -1219,6 +1313,9 @@ const handleRequest = async (req, res) => {
     const invitationFields = getInvitationFields(store);
     const baseUrl = getQrBaseUrl(req, store.settings);
     const inviteUrl = `${baseUrl}/invite`;
+    const targetInviteCollabUrl = `${baseUrl}/invite/collab`;
+    const error = url.searchParams.get("error");
+    const success = url.searchParams.get("success");
     sendResponse(
       res,
       200,
@@ -1228,7 +1325,10 @@ const handleRequest = async (req, res) => {
           (a, b) => a.sort_order - b.sort_order
         ),
         fields: invitationFields,
-        inviteUrl
+        inviteUrl,
+        targetInviteCollabUrl,
+        error,
+        success
       })
     );
     return;
@@ -1408,6 +1508,40 @@ const handleRequest = async (req, res) => {
     };
     saveStore(store);
     redirect(res, "/admin/invitation");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/invitation/targets/collab/save") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const action = String(body.action || "").trim();
+    const store = loadStore();
+    if (action === "disable") {
+      store.settings = {
+        ...store.settings,
+        target_invite_collab_password_hash: ""
+      };
+      saveStore(store);
+      const message = encodeURIComponent("协同邀请已停用。");
+      redirect(res, `/admin/invitation?success=${message}`);
+      return;
+    }
+    const password = normalizeTargetInviteCollabPassword(
+      body.target_invite_collab_password
+    );
+    if (password.length < 4) {
+      const message = encodeURIComponent("协同邀请密码至少需要 4 位。");
+      redirect(res, `/admin/invitation?error=${message}`);
+      return;
+    }
+    store.settings = {
+      ...store.settings,
+      target_invite_collab_password_hash: hashPassword(password)
+    };
+    saveStore(store);
+    const message = encodeURIComponent("协同邀请密码已保存，二维码链接已可分享。");
+    redirect(res, `/admin/invitation?success=${message}`);
     return;
   }
 
@@ -2639,6 +2773,143 @@ const handleRequest = async (req, res) => {
     store.winners = store.winners.filter((winner) => winner.prize_id !== id);
     saveStore(store);
     redirect(res, "/admin/lottery");
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/invite/collab/logout") {
+    destroyTargetInviteCollaboratorSession(req, res);
+    redirect(res, "/invite/collab");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/invite/collab/login") {
+    const body = await parseBody(req);
+    const store = loadStore();
+    const baseUrl = getQrBaseUrl(req, store.settings);
+    const inviteUrl = `${baseUrl}/invite`;
+    const collabUrl = `${baseUrl}/invite/collab`;
+    const passwordHash = String(
+      store.settings?.target_invite_collab_password_hash || ""
+    ).trim();
+    if (!passwordHash) {
+      destroyTargetInviteCollaboratorSession(req, res);
+      sendResponse(
+        res,
+        403,
+        renderTargetInviteCollaborator({
+          settings: store.settings,
+          inviteUrl,
+          collabUrl,
+          authenticated: false,
+          disabled: true,
+          error: "管理员尚未启用协同邀请。"
+        })
+      );
+      return;
+    }
+    const password = normalizeTargetInviteCollabPassword(body.password);
+    if (!password || !verifyPassword(password, passwordHash)) {
+      destroyTargetInviteCollaboratorSession(req, res);
+      sendResponse(
+        res,
+        200,
+        renderTargetInviteCollaborator({
+          settings: store.settings,
+          inviteUrl,
+          collabUrl,
+          authenticated: false,
+          error: "协同密码错误，请联系管理员确认。"
+        })
+      );
+      return;
+    }
+    createTargetInviteCollaboratorSession(req, res, passwordHash);
+    redirect(res, "/invite/collab");
+    return;
+  }
+
+  if (
+    (req.method === "GET" && pathname === "/invite/collab") ||
+    (req.method === "POST" && pathname === "/invite/collab/generate")
+  ) {
+    const store = loadStore();
+    const baseUrl = getQrBaseUrl(req, store.settings);
+    const inviteUrl = `${baseUrl}/invite`;
+    const collabUrl = `${baseUrl}/invite/collab`;
+    const passwordHash = String(
+      store.settings?.target_invite_collab_password_hash || ""
+    ).trim();
+    if (!passwordHash) {
+      destroyTargetInviteCollaboratorSession(req, res);
+      sendResponse(
+        res,
+        403,
+        renderTargetInviteCollaborator({
+          settings: store.settings,
+          inviteUrl,
+          collabUrl,
+          authenticated: false,
+          disabled: true,
+          error: "管理员尚未启用协同邀请。"
+        })
+      );
+      return;
+    }
+    const session = getTargetInviteCollaboratorSession(req);
+    const authenticated = Boolean(session && session.passwordHash === passwordHash);
+    if (!authenticated) {
+      destroyTargetInviteCollaboratorSession(req, res);
+      sendResponse(
+        res,
+        200,
+        renderTargetInviteCollaborator({
+          settings: store.settings,
+          inviteUrl,
+          collabUrl,
+          authenticated: false
+        })
+      );
+      return;
+    }
+    let generatedRecipient = null;
+    let generatedInviteUrl = "";
+    let generatedMessage = "";
+    let error = "";
+    if (req.method === "POST") {
+      const body = await parseBody(req);
+      const recipient = {
+        name: normalizeInviteRecipientField(body.target_name, 32),
+        title: normalizeInviteRecipientField(body.target_title, 24)
+      };
+      if (!recipient.name) {
+        error = "请先填写待发送人的名字。";
+      } else {
+        generatedRecipient = recipient;
+        generatedInviteUrl = buildTargetInviteUrl(inviteUrl, recipient);
+        generatedMessage = buildFriendlyTargetInviteMessage({
+          recipient,
+          inviteUrl: generatedInviteUrl,
+          coupleName: store.settings?.couple_name,
+          templates: normalizeTargetInviteMessageTemplates(
+            store.settings?.target_invite_message_templates
+          )
+        });
+      }
+    }
+    sendResponse(
+      res,
+      200,
+      renderTargetInviteCollaborator({
+        settings: store.settings,
+        inviteUrl,
+        collabUrl,
+        authenticated: true,
+        error,
+        generatedRecipient,
+        generatedInviteUrl,
+        generatedMessage
+      })
+    );
     return;
   }
 

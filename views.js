@@ -1557,6 +1557,372 @@ const renderLogin = (error) => `
 </html>
 `;
 
+const renderTargetInviteImageDownloadScript = (
+  buttonSelector = "[data-download-target-image='true']"
+) => `
+      const loadImage = (url) =>
+        new Promise((resolve, reject) => {
+          const image = new Image();
+          image.crossOrigin = "anonymous";
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error("image-load-failed"));
+          image.src = url;
+        });
+      const drawRoundedRect = (ctx, x, y, width, height, radius) => {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+      };
+      const wrapCanvasText = (ctx, text, maxWidth) => {
+        const chars = Array.from(String(text || ""));
+        const lines = [];
+        let current = "";
+        chars.forEach((char) => {
+          const candidate = current + char;
+          if (ctx.measureText(candidate).width > maxWidth && current) {
+            lines.push(current);
+            current = char;
+            return;
+          }
+          current = candidate;
+        });
+        if (current) lines.push(current);
+        return lines;
+      };
+      document.querySelectorAll("${buttonSelector}").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const targetName = String(button.dataset.targetName || "").trim();
+          const targetTitle = String(button.dataset.targetTitle || "").trim();
+          const inviteUrlValue = String(button.dataset.targetUrl || "").trim();
+          const coupleName = String(button.dataset.targetCouple || "").trim();
+          const weddingDate = String(button.dataset.targetDate || "").trim();
+          const weddingLocation = String(button.dataset.targetLocation || "").trim();
+          const backgroundColor = String(button.dataset.targetBg || "#7b1f2f").trim();
+          if (!targetName || !inviteUrlValue) return;
+          const originalText = button.textContent;
+          button.disabled = true;
+          button.textContent = "正在生成...";
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = 1125;
+            canvas.height = 2000;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) throw new Error("canvas-not-supported");
+            ctx.fillStyle = backgroundColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            gradient.addColorStop(0, "rgba(255,255,255,0.08)");
+            gradient.addColorStop(1, "rgba(255,255,255,0)");
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            drawRoundedRect(ctx, 84, 84, canvas.width - 168, canvas.height - 168, 42);
+            ctx.fillStyle = "rgba(255,255,255,0.12)";
+            ctx.fill();
+            ctx.restore();
+
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "600 54px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("专属定向请柬", canvas.width / 2, 220);
+
+            ctx.font = "500 72px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("诚挚邀请", canvas.width / 2, 380);
+
+            ctx.font = "800 92px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            const guestLines = wrapCanvasText(
+              ctx,
+              targetName + targetTitle,
+              canvas.width - 240
+            );
+            guestLines.forEach((line, index) => {
+              ctx.fillText(line, canvas.width / 2, 510 + index * 110);
+            });
+
+            const infoStartY = 510 + guestLines.length * 110 + 40;
+            ctx.font = "500 56px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("见证我们的幸福时刻", canvas.width / 2, infoStartY);
+
+            ctx.save();
+            drawRoundedRect(ctx, 120, infoStartY + 110, canvas.width - 240, 420, 36);
+            ctx.fillStyle = "rgba(255,255,255,0.9)";
+            ctx.fill();
+            ctx.restore();
+
+            ctx.fillStyle = backgroundColor;
+            ctx.font = "700 62px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText(coupleName || "新人姓名", canvas.width / 2, infoStartY + 210);
+
+            ctx.font = "600 40px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillStyle = "#53333c";
+            ctx.fillText("婚礼时间", canvas.width / 2, infoStartY + 300);
+            ctx.font = "500 38px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText(weddingDate || "待设置婚礼时间", canvas.width / 2, infoStartY + 355);
+
+            ctx.font = "600 40px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("婚礼地点", canvas.width / 2, infoStartY + 440);
+            ctx.font = "500 38px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            const locationLines = wrapCanvasText(
+              ctx,
+              weddingLocation || "待设置婚礼地点",
+              canvas.width - 320
+            );
+            locationLines.slice(0, 2).forEach((line, index) => {
+              ctx.fillText(line, canvas.width / 2, infoStartY + 495 + index * 48);
+            });
+
+            const qrSize = 420;
+            const qrX = (canvas.width - qrSize) / 2;
+            const qrY = canvas.height - 650;
+            ctx.save();
+            drawRoundedRect(ctx, qrX - 26, qrY - 26, qrSize + 52, qrSize + 52, 28);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.restore();
+
+            const qrCodeUrl = "https://api.qrserver.com/v1/create-qr-code/?size=800x800&margin=0&data=" +
+              encodeURIComponent(inviteUrlValue);
+            const qrImage = await loadImage(qrCodeUrl);
+            ctx.drawImage(qrImage, qrX, qrY, qrSize, qrSize);
+
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "600 34px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillText("扫码查看完整请柬", canvas.width / 2, canvas.height - 150);
+
+            const link = document.createElement("a");
+            link.href = canvas.toDataURL("image/png");
+            link.download = (targetName + (targetTitle || "") + "-专属邀请图.png")
+              .replace(/[\\\\/:*?\\"<>|]/g, "-");
+            link.click();
+            button.textContent = "已下载";
+          } catch (error) {
+            button.textContent = "生成失败";
+          } finally {
+            window.setTimeout(() => {
+              button.disabled = false;
+              button.textContent = originalText || "下载邀请图";
+            }, 1200);
+          }
+        });
+      });
+`;
+
+const renderTargetInviteCollaborator = ({
+  settings,
+  inviteUrl,
+  collabUrl,
+  authenticated = false,
+  disabled = false,
+  error = "",
+  generatedRecipient = null,
+  generatedInviteUrl = "",
+  generatedMessage = ""
+}) => {
+  const coupleName = normalizePageCoupleName(settings?.couple_name) || "婚礼请柬";
+  const targetInviteIntroBgColor = normalizeHexColor(
+    settings?.target_invite_intro_bg_color,
+    "#7b1f2f"
+  );
+  const recipient = normalizeInviteRecipient(generatedRecipient || {});
+  const recipientDisplayName = getInviteRecipientDisplayName(recipient);
+  const hasGeneratedResult = Boolean(
+    recipient.name && generatedInviteUrl && generatedMessage
+  );
+  if (!authenticated) {
+    return `<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>协同邀请登录</title>
+    ${renderFaviconLinks()}
+    <link rel="stylesheet" href="/public/css/main.css" />
+  </head>
+  <body class="auth-body">
+    <div class="auth-card collab-auth-card">
+      <div class="auth-brand">
+        <img src="${SITE_LOGO_ICON_PATH}" alt="" />
+        <span>Wedding Manager</span>
+      </div>
+      <h1>协同邀请入口</h1>
+      <p class="muted">${
+        disabled
+          ? "管理员尚未启用该协同入口，请联系管理员先设置协同密码。"
+          : `输入协同密码后，即可为 ${escapeHtml(coupleName)} 生成专属邀请消息与邀请图。`
+      }</p>
+      ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
+      ${
+        disabled
+          ? `<div class="form-stack">
+              <a class="btn ghost" href="${escapeHtml(inviteUrl)}" target="_blank">打开公开请柬</a>
+            </div>`
+          : `<form method="post" action="/invite/collab/login" class="form-stack">
+              <label>
+                协同密码
+                <input type="password" name="password" required />
+              </label>
+              <button type="submit" class="btn primary">登录协同邀请页</button>
+            </form>`
+      }
+    </div>
+  </body>
+</html>`;
+  }
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${escapeHtml(coupleName)}｜协同邀请</title>
+    ${renderFaviconLinks()}
+    <link rel="stylesheet" href="/public/css/main.css" />
+  </head>
+  <body class="collab-body">
+    <header class="top-bar">
+      <a class="brand collab-brand-link" href="${escapeHtml(collabUrl)}">
+        <img src="${SITE_LOGO_ICON_PATH}" alt="" />
+        <span>Wedding Manager</span>
+      </a>
+      <div class="section-actions">
+        <a class="btn ghost" href="${escapeHtml(inviteUrl)}" target="_blank">查看公开请柬</a>
+        <a class="btn ghost" href="/invite/collab/logout">退出</a>
+      </div>
+    </header>
+    <main class="container collab-container">
+      <section class="card collab-hero-card" style="--collab-accent:${escapeHtml(
+        targetInviteIntroBgColor
+      )};">
+        <div class="collab-hero-head">
+          <div>
+            <h1>协同专属请柬发送</h1>
+            <p class="muted">只填写待发送人的名字和称呼，即可生成邀请消息与邀请图片。</p>
+          </div>
+          <span class="tag">仅限协同邀请</span>
+        </div>
+        ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
+        <form method="post" action="/invite/collab/generate" class="form-grid">
+          <label>
+            待发送人名字
+            <input type="text" name="target_name" value="${escapeHtml(
+              recipient.name
+            )}" required />
+          </label>
+          <label>
+            称呼（可选）
+            <input type="text" name="target_title" value="${escapeHtml(
+              recipient.title
+            )}" />
+          </label>
+          <div class="inline-actions">
+            <button class="btn primary" type="submit">生成邀请内容</button>
+          </div>
+        </form>
+      </section>
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <h2>生成结果</h2>
+            <p class="muted">${
+              hasGeneratedResult
+                ? `已为 ${escapeHtml(recipientDisplayName)} 生成专属邀请内容。`
+                : "登录后在上方填写名字和称呼，即可生成可直接发送的邀请话术和邀请图片。"
+            }</p>
+          </div>
+          ${
+            hasGeneratedResult
+              ? `<span class="tag">${escapeHtml(recipientDisplayName)}</span>`
+              : ""
+          }
+        </div>
+        ${
+          hasGeneratedResult
+            ? `<div class="form-stack">
+                <label>
+                  专属请柬链接
+                  <textarea class="collab-result-textarea" rows="3" readonly>${escapeHtml(
+                    generatedInviteUrl
+                  )}</textarea>
+                </label>
+                <label>
+                  邀请消息
+                  <textarea class="collab-result-textarea" rows="8" readonly>${escapeHtml(
+                    generatedMessage
+                  )}</textarea>
+                </label>
+                <div class="inline-actions">
+                  <button class="btn ghost" type="button" data-copy-target-link="${escapeHtml(
+                    generatedInviteUrl
+                  )}">复制链接</button>
+                  <button class="btn ghost" type="button" data-copy-target-link="${escapeHtml(
+                    generatedMessage
+                  )}">复制消息</button>
+                  <a class="btn ghost" href="${escapeHtml(
+                    generatedInviteUrl
+                  )}" target="_blank">打开专属请柬</a>
+                  <button class="btn primary" type="button" data-download-target-image="true" data-target-name="${escapeHtml(
+                    recipient.name
+                  )}" data-target-title="${escapeHtml(
+                    recipient.title
+                  )}" data-target-url="${escapeHtml(
+                    generatedInviteUrl
+                  )}" data-target-couple="${escapeHtml(
+                    settings?.couple_name || ""
+                  )}" data-target-date="${escapeHtml(
+                    settings?.wedding_date || ""
+                  )}" data-target-location="${escapeHtml(
+                    settings?.wedding_location || ""
+                  )}" data-target-bg="${escapeHtml(
+                    targetInviteIntroBgColor
+                  )}">下载邀请图</button>
+                </div>
+              </div>`
+            : `<p class="muted">该页面不会展示后台其他内容，也不会暴露名单、模板管理等配置，只保留协同发送所需的最小能力。</p>`
+        }
+      </section>
+    </main>
+    <script>
+      document.querySelectorAll("[data-copy-target-link]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const payload = String(button.getAttribute("data-copy-target-link") || "");
+          if (!payload) return;
+          const originalText = button.textContent;
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(payload);
+            } else {
+              const temp = document.createElement("textarea");
+              temp.value = payload;
+              document.body.appendChild(temp);
+              temp.select();
+              document.execCommand("copy");
+              temp.remove();
+            }
+            button.textContent = "已复制";
+          } catch (copyError) {
+            button.textContent = "复制失败";
+          } finally {
+            window.setTimeout(() => {
+              button.textContent = originalText || "复制";
+            }, 1200);
+          }
+        });
+      });
+${renderTargetInviteImageDownloadScript()}
+    </script>
+  </body>
+</html>`;
+};
+
 const renderDashboard = ({
   guestInviteCount,
   registeredGuestCount,
@@ -1774,7 +2140,15 @@ ${success ? `<div class="alert" style="background:#e9f7ef;color:#2f8f5f;">${esca
 `
   );
 
-const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
+const renderInvitation = ({
+  settings,
+  sections,
+  fields,
+  inviteUrl,
+  targetInviteCollabUrl,
+  error,
+  success
+}) => {
   const heroOverlayEnabled = settings?.hero_overlay_enabled !== false;
   const heroOverlayColor = normalizeHexColor(
     settings?.hero_overlay_color,
@@ -1888,6 +2262,9 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
   const targetInviteMessageTemplates = normalizeFriendlyInviteTemplatesForView(
     settings?.target_invite_message_templates
   );
+  const targetInviteCollabEnabled = Boolean(
+    String(settings?.target_invite_collab_password_hash || "").trim()
+  );
   const buildTargetInviteImageButton = (recipient, inviteUrlValue) =>
     `<button class="btn ghost small" type="button" data-download-target-image="true" data-target-name="${escapeHtml(
       recipient.name || ""
@@ -1944,53 +2321,6 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
   const targetInviteDirectCopyAll = targetInviteDirectMessages
     .map((item, index) => `【${index + 1}】${item.message}`)
     .join("\n\n");
-  const targetInviteBatchRowsHtml = targetInviteRecipients.length
-    ? targetInviteRecipients
-        .map((item, index) => {
-          const displayName = `${item.name}${item.title || ""}`;
-          const itemUrl = buildTargetInviteUrl(inviteUrl, item);
-          const friendlyMessage = buildFriendlyTargetInviteMessage({
-            recipient: item,
-            inviteUrl: itemUrl,
-            coupleName: settings?.couple_name,
-            index,
-            templates: targetInviteMessageTemplates
-          });
-          const copyContent = targetInviteFriendlyMessageEnabled
-            ? friendlyMessage
-            : itemUrl;
-          return `<tr>
-            <td>${index + 1}</td>
-            <td>${escapeHtml(displayName)}</td>
-            <td>${
-              targetInviteFriendlyMessageEnabled
-                ? `<textarea rows="5" readonly>${escapeHtml(friendlyMessage)}</textarea>`
-                : `<code>${escapeHtml(itemUrl)}</code>`
-            }</td>
-            <td>
-              <button class="btn ghost small" type="button" data-copy-target-link="${escapeHtml(
-                copyContent
-              )}">${targetInviteFriendlyMessageEnabled ? "复制消息" : "复制链接"}</button>
-              ${buildTargetInviteImageButton(item, itemUrl)}
-            </td>
-          </tr>`;
-        })
-        .join("")
-    : "";
-  const targetInviteBatchCopyAll = targetInviteRecipients
-    .map((item, index) => {
-      const itemUrl = buildTargetInviteUrl(inviteUrl, item);
-      const friendlyMessage = buildFriendlyTargetInviteMessage({
-        recipient: item,
-        inviteUrl: itemUrl,
-        coupleName: settings?.couple_name,
-        index,
-        templates: targetInviteMessageTemplates
-      });
-      const content = targetInviteFriendlyMessageEnabled ? friendlyMessage : itemUrl;
-      return `【${index + 1}】${content}`;
-    })
-    .join("\n\n");
   const targetInviteTemplateItemsHtml = targetInviteMessageTemplates
     .map(
       (template, index) => `<div class="list-item invitation-field-item">
@@ -2009,6 +2339,133 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
     </div>`
     )
     .join("");
+  const targetInviteRecipientCount = targetInviteRecipients.length;
+  const invitationStatusHtml = `${
+    error ? `<div class="alert">${escapeHtml(error)}</div>` : ""
+  }${
+    success
+      ? `<div class="alert alert-success">${escapeHtml(success)}</div>`
+      : ""
+  }`;
+  const targetInviteLinksDialogHtml = `<dialog class="guest-dialog invite-utility-dialog" id="targetInviteLinksDialog">
+    <div class="dialog-header">
+      <div>
+        <strong>定向发送专用链接</strong>
+        <div class="muted">逐条查看、复制邀请信息或下载邀请图。</div>
+      </div>
+      <button class="btn ghost small" type="button" data-dialog-close>关闭</button>
+    </div>
+    <div class="dialog-body invite-utility-dialog-body">
+      ${
+        targetInviteDirectMessages.length
+          ? `<div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>对象</th>
+                    <th>邀请信息</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>${targetInviteDirectRowsHtml}</tbody>
+              </table>
+            </div>`
+          : `<div class="muted">请先在“专属请柬批量链接”中配置名单后再查看。</div>`
+      }
+    </div>
+    <div class="dialog-actions">
+      ${
+        targetInviteDirectMessages.length
+          ? `<button class="btn ghost" type="button" data-copy-target-all="${escapeHtml(
+              targetInviteDirectCopyAll
+            )}">复制全部邀请信息</button>`
+          : ""
+      }
+      <button class="btn primary" type="button" data-dialog-close>完成</button>
+    </div>
+  </dialog>`;
+  const targetInviteTemplatesDialogHtml = `<dialog class="guest-dialog invite-utility-dialog" id="targetInviteTemplatesDialog">
+    <div class="dialog-header">
+      <div>
+        <strong>友好邀请话术模板</strong>
+        <div class="muted">新增、编辑、删除模板，系统会随机套用。</div>
+      </div>
+      <button class="btn ghost small" type="button" data-dialog-close>关闭</button>
+    </div>
+    <div class="dialog-body invite-utility-dialog-body">
+      <form method="post" action="/admin/invitation/targets/templates" class="form-grid">
+        <label class="full">
+          新增模板
+          <textarea name="template" rows="3" required placeholder="示例：您好！诚挚邀请您拨冗出席我们的婚礼，盼您莅临指导。"></textarea>
+        </label>
+        <div class="section-editor-actions full">
+          <button class="btn primary" type="submit">新增模板</button>
+        </div>
+      </form>
+      <div class="list invitation-field-list">
+        ${targetInviteTemplateItemsHtml}
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn primary" type="button" data-dialog-close>完成</button>
+    </div>
+  </dialog>`;
+  const targetInviteCollabDialogHtml = `<dialog class="guest-dialog invite-utility-dialog" id="targetInviteCollabDialog">
+    <div class="dialog-header">
+      <div>
+        <strong>协同其他人共同邀请</strong>
+        <div class="muted">设置协同密码后，把二维码或链接发给协作者，对方登录后只能生成专属邀请消息和邀请图片。</div>
+      </div>
+      <button class="btn ghost small" type="button" data-dialog-close>关闭</button>
+    </div>
+    <div class="dialog-body invite-utility-dialog-body">
+      <form method="post" action="/admin/invitation/targets/collab/save" class="form-grid">
+        <label class="full">
+          协同邀请密码
+          <input type="password" name="target_invite_collab_password" placeholder="${
+            targetInviteCollabEnabled ? "输入新密码可重新设置" : "至少 4 位，保存后启用"
+          }" required />
+        </label>
+        <p class="muted full">密码仅以加密摘要方式保存，后台不会回显旧密码；如需更新，请直接输入新密码重新保存。</p>
+        <div class="inline-actions full">
+          <button class="btn primary" type="submit">保存协同密码</button>
+          ${
+            targetInviteCollabEnabled
+              ? `<button class="btn ghost" type="submit" name="action" value="disable" formnovalidate onclick="return confirm('确认停用协同邀请吗？');">停用协同邀请</button>`
+              : ""
+          }
+        </div>
+      </form>
+      ${
+        targetInviteCollabEnabled
+          ? `<div class="qr-grid collab-qr-grid">
+              <div class="qr-card">
+                <h3>协同登录二维码</h3>
+                <p>协作者扫码后需先输入上方设置的协同密码。</p>
+                <a class="qr-link" href="${escapeHtml(targetInviteCollabUrl)}" target="_blank">
+                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
+                    targetInviteCollabUrl
+                  )}" alt="协同邀请二维码" />
+                  <span>点击打开协同邀请页</span>
+                </a>
+                <div class="qr-actions">
+                  <a class="btn ghost" href="${escapeHtml(
+                    targetInviteCollabUrl
+                  )}" target="_blank">打开协同页</a>
+                  <button class="btn ghost" type="button" data-copy-target-link="${escapeHtml(
+                    targetInviteCollabUrl
+                  )}">复制链接</button>
+                </div>
+              </div>
+            </div>`
+          : `<div class="muted">保存协同密码后，这里会显示可分享的二维码和专属链接。</div>`
+      }
+    </div>
+    <div class="dialog-actions">
+      <button class="btn primary" type="button" data-dialog-close>完成</button>
+    </div>
+  </dialog>`;
   const orderedGuestFields = getOrderedGuestCollectionFields({ settings, fields });
   const routeImageUrls = getWeddingRouteImageUrls(settings);
   const orderedFieldKeysValue = orderedGuestFields
@@ -2124,6 +2581,7 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
   return adminLayout(
     "请柬设计",
     `
+${invitationStatusHtml}
 <section class="card">
   <div class="section-header">
     <div>
@@ -2152,29 +2610,22 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
     </div>
     <div class="qr-card">
       <h3>定向发送专用链接</h3>
-      <p>按专属对象逐条生成可直接发送的邀请信息，可单条复制，也可一键复制全部。</p>
-      ${
-        targetInviteDirectMessages.length
-          ? `<div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>对象</th>
-                    <th>邀请信息</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>${targetInviteDirectRowsHtml}</tbody>
-              </table>
-            </div>
-            <div class="inline-actions">
-              <button class="btn ghost" type="button" data-copy-target-all="${escapeHtml(
+      <p>按专属对象逐条生成邀请信息，列表已收纳到弹窗中，主页面保持简洁。</p>
+      <div class="qr-actions">
+        <button class="btn ghost" type="button" data-dialog-target="targetInviteLinksDialog">查看邀请信息列表</button>
+        ${
+          targetInviteDirectMessages.length
+            ? `<button class="btn ghost" type="button" data-copy-target-all="${escapeHtml(
                 targetInviteDirectCopyAll
-              )}">复制全部邀请信息</button>
-            </div>`
-          : `<div class="muted">请先在下方“专属请柬批量链接”中配置定向对象名单。</div>`
-      }
+              )}">复制全部邀请信息</button>`
+            : ""
+        }
+      </div>
+      <p class="muted">${
+        targetInviteDirectMessages.length
+          ? `当前已生成 ${targetInviteDirectMessages.length} 条专属邀请信息。`
+          : "请先在下方“专属请柬批量链接”中配置名单。"
+      }</p>
     </div>
   </div>
 </section>
@@ -2216,41 +2667,19 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
       <button class="btn primary" type="submit">保存并生效</button>
     </div>
   </form>
-  ${
-    targetInviteRecipients.length
-      ? `<div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>对象</th>
-                <th>${targetInviteFriendlyMessageEnabled ? "友好邀请消息（可直接发送）" : "专属链接"}</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>${targetInviteBatchRowsHtml}</tbody>
-          </table>
-        </div>
-        <div class="inline-actions">
-          <button class="btn ghost" type="button" data-copy-target-all="${escapeHtml(
-            targetInviteBatchCopyAll
-          )}">${targetInviteFriendlyMessageEnabled ? "复制全部消息" : "复制全部链接"}</button>
-        </div>`
-      : `<p class="muted">尚未生成批量专属链接。</p>`
-  }
-  <h3>友好邀请话术模板</h3>
-  <p class="muted">可新增、编辑、删除模板。系统会在批量对象中随机套用。</p>
-  <form method="post" action="/admin/invitation/targets/templates" class="form-grid">
-    <label class="full">
-      新增模板
-      <textarea name="template" rows="3" required placeholder="示例：您好！诚挚邀请您拨冗出席我们的婚礼，盼您莅临指导。"></textarea>
-    </label>
-    <div class="section-editor-actions full">
-      <button class="btn primary" type="submit">新增模板</button>
-    </div>
-  </form>
-  <div class="list invitation-field-list">
-    ${targetInviteTemplateItemsHtml}
+  <div class="inline-actions">
+    <button class="btn ghost" type="button" data-dialog-target="targetInviteLinksDialog">查看专属邀请信息</button>
+    <button class="btn ghost" type="button" data-dialog-target="targetInviteTemplatesDialog">管理友好话术模板</button>
+    <button class="btn ghost" type="button" data-dialog-target="targetInviteCollabDialog">协同其他人共同邀请</button>
+  </div>
+  <div class="muted">
+    已配置 ${targetInviteRecipientCount} 位专属对象。
+    ${
+      targetInviteRecipients.length
+        ? `当前模式：${targetInviteFriendlyMessageEnabled ? "友好邀请消息" : "专属链接"}。`
+        : "保存名单后可在弹窗中查看详情。"
+    }
+    ${targetInviteCollabEnabled ? "协同邀请已启用。" : "尚未设置协同邀请密码。"}
   </div>
 </section>
 
@@ -2986,6 +3415,9 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
     ${invitationFieldItemsHtml}
   </div>
 </section>
+${targetInviteLinksDialogHtml}
+${targetInviteTemplatesDialogHtml}
+${targetInviteCollabDialogHtml}
 <script>
     (() => {
       const uploadButton = document.getElementById("inviteMusicUpload");
@@ -3147,161 +3579,40 @@ const renderInvitation = ({ settings, sections, fields, inviteUrl }) => {
           }
         });
       });
-      const loadImage = (url) =>
-        new Promise((resolve, reject) => {
-          const image = new Image();
-          image.crossOrigin = "anonymous";
-          image.onload = () => resolve(image);
-          image.onerror = () => reject(new Error("image-load-failed"));
-          image.src = url;
-        });
-      const drawRoundedRect = (ctx, x, y, width, height, radius) => {
-        ctx.beginPath();
-        ctx.moveTo(x + radius, y);
-        ctx.lineTo(x + width - radius, y);
-        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-        ctx.lineTo(x + width, y + height - radius);
-        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-        ctx.lineTo(x + radius, y + height);
-        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-        ctx.lineTo(x, y + radius);
-        ctx.quadraticCurveTo(x, y, x + radius, y);
-        ctx.closePath();
-      };
-      const wrapCanvasText = (ctx, text, maxWidth) => {
-        const chars = Array.from(String(text || ""));
-        const lines = [];
-        let current = "";
-        chars.forEach((char) => {
-          const candidate = current + char;
-          if (ctx.measureText(candidate).width > maxWidth && current) {
-            lines.push(current);
-            current = char;
+      document.querySelectorAll("[data-dialog-target]").forEach((trigger) => {
+        trigger.addEventListener("click", () => {
+          const dialogId = trigger.getAttribute("data-dialog-target");
+          const dialog = dialogId ? document.getElementById(dialogId) : null;
+          if (!dialog) return;
+          if (typeof dialog.showModal === "function") {
+            dialog.showModal();
             return;
           }
-          current = candidate;
-        });
-        if (current) lines.push(current);
-        return lines;
-      };
-      document.querySelectorAll("[data-download-target-image='true']").forEach((button) => {
-        button.addEventListener("click", async () => {
-          const targetName = String(button.dataset.targetName || "").trim();
-          const targetTitle = String(button.dataset.targetTitle || "").trim();
-          const inviteUrlValue = String(button.dataset.targetUrl || "").trim();
-          const coupleName = String(button.dataset.targetCouple || "").trim();
-          const weddingDate = String(button.dataset.targetDate || "").trim();
-          const weddingLocation = String(button.dataset.targetLocation || "").trim();
-          const backgroundColor = String(button.dataset.targetBg || "#7b1f2f").trim();
-          if (!targetName || !inviteUrlValue) return;
-          const originalText = button.textContent;
-          button.disabled = true;
-          button.textContent = "正在生成...";
-          try {
-            const canvas = document.createElement("canvas");
-            canvas.width = 1125;
-            canvas.height = 2000;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) throw new Error("canvas-not-supported");
-            ctx.fillStyle = backgroundColor;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-            gradient.addColorStop(0, "rgba(255,255,255,0.08)");
-            gradient.addColorStop(1, "rgba(255,255,255,0)");
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            ctx.save();
-            drawRoundedRect(ctx, 84, 84, canvas.width - 168, canvas.height - 168, 42);
-            ctx.fillStyle = "rgba(255,255,255,0.12)";
-            ctx.fill();
-            ctx.restore();
-
-            ctx.textAlign = "center";
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "600 54px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            ctx.fillText("专属定向请柬", canvas.width / 2, 220);
-
-            ctx.font = "500 72px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            ctx.fillText("诚挚邀请", canvas.width / 2, 380);
-
-            ctx.font = "800 92px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            const guestLines = wrapCanvasText(
-              ctx,
-              targetName + targetTitle,
-              canvas.width - 240
-            );
-            guestLines.forEach((line, index) => {
-              ctx.fillText(line, canvas.width / 2, 510 + index * 110);
-            });
-
-            const infoStartY = 510 + guestLines.length * 110 + 40;
-            ctx.font = "500 56px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            ctx.fillText("见证我们的幸福时刻", canvas.width / 2, infoStartY);
-
-            ctx.save();
-            drawRoundedRect(ctx, 120, infoStartY + 110, canvas.width - 240, 420, 36);
-            ctx.fillStyle = "rgba(255,255,255,0.9)";
-            ctx.fill();
-            ctx.restore();
-
-            ctx.fillStyle = backgroundColor;
-            ctx.font = "700 62px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            ctx.fillText(coupleName || "新人姓名", canvas.width / 2, infoStartY + 210);
-
-            ctx.font = "600 40px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            ctx.fillStyle = "#53333c";
-            ctx.fillText("婚礼时间", canvas.width / 2, infoStartY + 300);
-            ctx.font = "500 38px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            ctx.fillText(weddingDate || "待设置婚礼时间", canvas.width / 2, infoStartY + 355);
-
-            ctx.font = "600 40px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            ctx.fillText("婚礼地点", canvas.width / 2, infoStartY + 440);
-            ctx.font = "500 38px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            const locationLines = wrapCanvasText(
-              ctx,
-              weddingLocation || "待设置婚礼地点",
-              canvas.width - 320
-            );
-            locationLines.slice(0, 2).forEach((line, index) => {
-              ctx.fillText(line, canvas.width / 2, infoStartY + 495 + index * 48);
-            });
-
-            const qrSize = 420;
-            const qrX = (canvas.width - qrSize) / 2;
-            const qrY = canvas.height - 650;
-            ctx.save();
-            drawRoundedRect(ctx, qrX - 26, qrY - 26, qrSize + 52, qrSize + 52, 28);
-            ctx.fillStyle = "#ffffff";
-            ctx.fill();
-            ctx.restore();
-
-            const qrCodeUrl = "https://api.qrserver.com/v1/create-qr-code/?size=800x800&margin=0&data=" +
-              encodeURIComponent(inviteUrlValue);
-            const qrImage = await loadImage(qrCodeUrl);
-            ctx.drawImage(qrImage, qrX, qrY, qrSize, qrSize);
-
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "600 34px 'PingFang SC', 'Microsoft YaHei', sans-serif";
-            ctx.fillText("扫码查看完整请柬", canvas.width / 2, canvas.height - 150);
-
-            const link = document.createElement("a");
-            link.href = canvas.toDataURL("image/png");
-            link.download = (targetName + (targetTitle || "") + "-专属邀请图.png")
-              .replace(/[\\/:*?\"<>|]/g, "-");
-            link.click();
-            button.textContent = "已下载";
-          } catch (error) {
-            button.textContent = "生成失败";
-          } finally {
-            window.setTimeout(() => {
-              button.disabled = false;
-              button.textContent = originalText || "下载邀请图";
-            }, 1200);
-          }
+          dialog.setAttribute("open", "");
         });
       });
+      document.querySelectorAll("[data-dialog-close]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const dialog = button.closest("dialog");
+          if (!dialog) return;
+          if (typeof dialog.close === "function") {
+            dialog.close();
+            return;
+          }
+          dialog.removeAttribute("open");
+        });
+      });
+      document.querySelectorAll("dialog").forEach((dialog) => {
+        dialog.addEventListener("click", (event) => {
+          if (event.target !== dialog) return;
+          if (typeof dialog.close === "function") {
+            dialog.close();
+            return;
+          }
+          dialog.removeAttribute("open");
+        });
+      });
+${renderTargetInviteImageDownloadScript()}
       if (invitationSettingsForm) {
         const bindToggleGroup = (toggleName, dependentNames) => {
           const toggle = invitationSettingsForm.querySelector(
@@ -6482,6 +6793,7 @@ module.exports = {
   renderDashboard,
   renderAdmins,
   renderInvitation,
+  renderTargetInviteCollaborator,
   renderGuests,
   renderLedger,
   renderTablePrint,

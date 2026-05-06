@@ -182,6 +182,15 @@ test("renders batch targeted invite links in admin invitation page", async () =>
   assert.ok(invitationText.includes('name="target_invite_recipients_text"'));
   assert.ok(!invitationText.includes("默认定向对象姓名（可选）"));
   assert.ok(!invitationText.includes("默认定向对象称呼（可选）"));
+  assert.ok(invitationText.includes("查看邀请信息列表"));
+  assert.ok(invitationText.includes('id="targetInviteLinksDialog"'));
+  assert.ok(invitationText.includes("管理友好话术模板"));
+  assert.ok(invitationText.includes('id="targetInviteTemplatesDialog"'));
+  assert.ok(invitationText.includes("协同其他人共同邀请"));
+  assert.ok(invitationText.includes('id="targetInviteCollabDialog"'));
+  assert.ok(
+    invitationText.includes('action="/admin/invitation/targets/collab/save"')
+  );
   assert.ok(
     invitationText.includes(
       "target_name=%E5%BC%A0%E4%B8%89&target_title=%E5%85%88%E7%94%9F"
@@ -230,11 +239,103 @@ test("renders friendly invite messages for batch links when enabled", async () =
   const invitationText = await invitationResponse.text();
   assert.strictEqual(invitationResponse.status, 200);
   assert.ok(invitationText.includes("开启专属请柬友好消息发送模式"));
+  assert.ok(invitationText.includes('data-dialog-target="targetInviteLinksDialog"'));
+  assert.ok(invitationText.includes('data-dialog-target="targetInviteTemplatesDialog"'));
   assert.ok(invitationText.includes("友好邀请消息（可直接发送）"));
   assert.ok(invitationText.includes("附上专属请柬链接："));
   assert.ok(invitationText.includes("我不填写，已线下沟通"));
   assert.ok(invitationText.includes("复制消息"));
   assert.ok(invitationText.includes("复制全部消息"));
+  assert.ok(invitationText.includes("协同其他人共同邀请"));
+  assert.ok(invitationText.includes("协同登录二维码"));
+});
+
+test("supports target invite collaborator login and generation flow", async () => {
+  const loginResponse = await fetch(`${baseUrl}/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: "admin", password: "admin123" }),
+    redirect: "manual"
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const enableResponse = await fetch(
+    `${baseUrl}/admin/invitation/targets/collab/save`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        cookie
+      },
+      body: new URLSearchParams({
+        target_invite_collab_password: "collab1234"
+      }),
+      redirect: "manual"
+    }
+  );
+  assert.strictEqual(enableResponse.status, 302);
+
+  const collabGuestResponse = await fetch(`${baseUrl}/invite/collab`);
+  const collabGuestText = await collabGuestResponse.text();
+  assert.strictEqual(collabGuestResponse.status, 200);
+  assert.ok(collabGuestText.includes("协同邀请入口"));
+  assert.ok(collabGuestText.includes('action="/invite/collab/login"'));
+  assert.ok(!collabGuestText.includes("批量名单（每行一个）"));
+
+  const wrongLoginResponse = await fetch(`${baseUrl}/invite/collab/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ password: "bad-pass" })
+  });
+  const wrongLoginText = await wrongLoginResponse.text();
+  assert.strictEqual(wrongLoginResponse.status, 200);
+  assert.ok(wrongLoginText.includes("协同密码错误"));
+
+  const collabLoginResponse = await fetch(`${baseUrl}/invite/collab/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ password: "collab1234" }),
+    redirect: "manual"
+  });
+  assert.strictEqual(collabLoginResponse.status, 302);
+  assert.strictEqual(collabLoginResponse.headers.get("location"), "/invite/collab");
+  const collabCookie = collabLoginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(collabCookie);
+
+  const workspaceResponse = await fetch(`${baseUrl}/invite/collab`, {
+    headers: { cookie: collabCookie }
+  });
+  const workspaceText = await workspaceResponse.text();
+  assert.strictEqual(workspaceResponse.status, 200);
+  assert.ok(workspaceText.includes("协同专属请柬发送"));
+  assert.ok(workspaceText.includes('action="/invite/collab/generate"'));
+  assert.ok(workspaceText.includes("只填写待发送人的名字和称呼"));
+  assert.ok(!workspaceText.includes("请柬基础信息"));
+  assert.ok(!workspaceText.includes("管理友好话术模板"));
+
+  const generateResponse = await fetch(`${baseUrl}/invite/collab/generate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie: collabCookie
+    },
+    body: new URLSearchParams({
+      target_name: "协同来宾",
+      target_title: "老师"
+    })
+  });
+  const generateText = await generateResponse.text();
+  assert.strictEqual(generateResponse.status, 200);
+  assert.ok(generateText.includes("已为 协同来宾老师 生成专属邀请内容。"));
+  assert.ok(generateText.includes("附上专属请柬链接："));
+  assert.ok(
+    generateText.includes(
+      "target_name=%E5%8D%8F%E5%90%8C%E6%9D%A5%E5%AE%BE&target_title=%E8%80%81%E5%B8%88"
+    )
+  );
+  assert.ok(generateText.includes("下载邀请图"));
+  assert.ok(generateText.includes('data-download-target-image="true"'));
 });
 
 test("does not show targeted intro for generic invite even when target recipients exist", async () => {

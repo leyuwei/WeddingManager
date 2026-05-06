@@ -616,6 +616,16 @@ input[type="color"] {
   background: rgba(0, 0, 0, 0.4);
 }
 
+.invite-utility-dialog {
+  width: min(1100px, 96vw);
+  max-height: 88vh;
+}
+
+.invite-utility-dialog-body {
+  max-height: calc(88vh - 140px);
+  overflow: auto;
+}
+
 .dialog-header,
 .dialog-actions {
   padding: 16px;
@@ -1498,6 +1508,46 @@ input[type="color"] {
   text-align: center;
 }
 
+.collab-auth-card {
+  width: min(460px, 92vw);
+}
+
+.collab-body {
+  background: linear-gradient(180deg, #f7f5f2 0%, #fffaf8 100%);
+}
+
+.collab-brand-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.collab-container {
+  max-width: 960px;
+}
+
+.collab-hero-card {
+  background: linear-gradient(135deg, #fffaf8 0%, #ffffff 62%, var(--collab-accent) 180%);
+  border: 1px solid rgba(123, 31, 47, 0.1);
+}
+
+.collab-hero-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.collab-result-textarea {
+  font-family: "Inter", "PingFang SC", sans-serif;
+  line-height: 1.7;
+}
+
+.collab-qr-grid {
+  margin-top: 18px;
+}
+
 .auth-brand {
   display: inline-flex;
   align-items: center;
@@ -1523,4 +1573,9 @@ input[type="color"] {
   padding: 10px;
   border-radius: 10px;
   margin-bottom: 12px;
+}
+
+.alert-success {
+  background: #e9f7ef;
+  color: #2f8f5f;
 }

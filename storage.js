@@ -341,6 +341,7 @@ const seedStore = (store) => {
       wedding_route_image_urls: [],
       target_invite_intro_bg_color: "#7b1f2f",
       target_invite_recipients: [],
+      target_invite_collab_password_hash: "",
       target_invite_friendly_message_enabled: false,
       target_invite_message_templates: [
         "您好！谨代表我们诚挚邀请您拨冗出席婚礼，若蒙莅临，不胜荣幸。",
@@ -428,6 +429,11 @@ const seedStore = (store) => {
     store.settings.target_invite_friendly_message_enabled,
     false
   );
+  store.settings.target_invite_collab_password_hash = String(
+    store.settings.target_invite_collab_password_hash || ""
+  )
+    .trim()
+    .slice(0, 256);
   if (!Array.isArray(store.settings.target_invite_message_templates)) {
     store.settings.target_invite_message_templates = [];
   }
