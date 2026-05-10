@@ -2733,14 +2733,44 @@ const handleRequest = async (req, res) => {
       return {
         ...winner,
         prize_name: prize ? prize.name : "-",
-        guest_name: guest ? guest.name : "-"
+        guest_name: guest ? guest.name : "-",
+        display_name: winner.display_name || (guest ? guest.name : "-")
       };
     });
     sendResponse(
       res,
       200,
-      renderAdminLottery({ prizes: store.prizes, winners })
+      renderAdminLottery({
+        prizes: store.prizes,
+        winners,
+        settings: store.settings,
+        guests: store.guests,
+        checkedInGuests: getCheckedInGuests(store).checkedInGuests
+      })
     );
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/lottery/settings") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    if (body.lottery_mode === "checkin" || body.lottery_mode === "number_range") {
+      store.settings.lottery_mode = body.lottery_mode;
+    }
+    if (body.lottery_number_start) {
+      store.settings.lottery_number_start = Math.max(1, Math.floor(Number(body.lottery_number_start) || 1));
+    }
+    if (body.lottery_number_end) {
+      store.settings.lottery_number_end = Math.max(
+        store.settings.lottery_number_start,
+        Math.floor(Number(body.lottery_number_end) || 100)
+      );
+    }
+    store.settings.lottery_simulate = body.lottery_simulate === "1" || body.lottery_simulate === "true";
+    saveStore(store);
+    redirect(res, "/admin/lottery");
     return;
   }
 
@@ -2750,10 +2780,20 @@ const handleRequest = async (req, res) => {
     const body = await parseBody(req);
     if (body.name) {
       const store = loadStore();
+      const riggedNames = String(body.rigged_names || "")
+        .split(/[,，\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const riggedNumbers = String(body.rigged_numbers || "")
+        .split(/[,，\n\r\s]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
       store.prizes.push({
         id: nextId(store, "prizes"),
         name: body.name,
-        quantity: Number(body.quantity) || 1
+        quantity: Number(body.quantity) || 1,
+        rigged_names: riggedNames,
+        rigged_numbers: riggedNumbers
       });
       saveStore(store);
     }
@@ -2771,6 +2811,20 @@ const handleRequest = async (req, res) => {
     const id = Number(prizeDeleteMatch[1]);
     store.prizes = store.prizes.filter((prize) => prize.id !== id);
     store.winners = store.winners.filter((winner) => winner.prize_id !== id);
+    saveStore(store);
+    redirect(res, "/admin/lottery");
+    return;
+  }
+
+  const winnerDeleteMatch = pathname.match(
+    /^\/admin\/lottery\/winners\/(\d+)\/delete$/
+  );
+  if (req.method === "POST" && winnerDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const id = Number(winnerDeleteMatch[1]);
+    store.winners = store.winners.filter((winner) => winner.id !== id);
     saveStore(store);
     redirect(res, "/admin/lottery");
     return;
@@ -3412,13 +3466,15 @@ const handleRequest = async (req, res) => {
     const store = loadStore();
     const session = getSession(req);
     const { checkedInGuests } = getCheckedInGuests(store);
+    const allGuests = store.guests || [];
     const winners = store.winners.map((winner) => {
       const prize = store.prizes.find((item) => item.id === winner.prize_id);
       const guest = store.guests.find((item) => item.id === winner.guest_id);
       return {
         ...winner,
         prize_name: prize ? prize.name : "-",
-        guest_name: guest ? guest.name : "-"
+        guest_name: guest ? guest.name : "-",
+        display_name: winner.display_name || (guest ? guest.name : "-")
       };
     });
     sendResponse(
@@ -3427,8 +3483,10 @@ const handleRequest = async (req, res) => {
       renderLottery({
         prizes: store.prizes,
         isAdmin: Boolean(session),
-        guests: checkedInGuests,
-        winners
+        checkedInGuests,
+        allGuests,
+        winners,
+        settings: store.settings
       })
     );
     return;
@@ -3440,7 +3498,12 @@ const handleRequest = async (req, res) => {
     const store = loadStore();
     store.winners = [];
     saveStore(store);
-    sendResponse(res, 200, JSON.stringify({ ok: true }), "application/json");
+    const accept = String(req.headers.accept || "");
+    if (accept.includes("application/json")) {
+      sendResponse(res, 200, JSON.stringify({ ok: true }), "application/json");
+    } else {
+      redirect(res, "/admin/lottery");
+    }
     return;
   }
 
@@ -3464,28 +3527,102 @@ const handleRequest = async (req, res) => {
       sendResponse(res, 400, JSON.stringify({ error: "奖品已抽完" }), "application/json");
       return;
     }
-    const { checkinMap } = getCheckedInGuests(store);
-    const eligible = store.guests.filter(
-      (guest) =>
-        checkinMap.has(guest.id) &&
-        !store.winners.some((winner) => winner.guest_id === guest.id)
+    const mode = store.settings.lottery_mode || "checkin";
+    const isSimulated = Boolean(store.settings.lottery_simulate);
+    const wonDisplayNames = new Set(
+      store.winners.map((w) => w.display_name).filter(Boolean)
     );
-    if (eligible.length === 0) {
-      sendResponse(res, 400, JSON.stringify({ error: "暂无可抽取来宾" }), "application/json");
-      return;
+    const wonGuestIds = new Set(store.winners.map((w) => w.guest_id).filter(Boolean));
+    const wonNumbers = new Set(
+      store.winners.map((w) => w.lottery_number).filter(Boolean)
+    );
+
+    let winnerEntry = null;
+
+    if (mode === "number_range") {
+      const start = store.settings.lottery_number_start || 1;
+      const end = store.settings.lottery_number_end || 100;
+      const riggedNumbers = prize.rigged_numbers || [];
+      const availableRigged = riggedNumbers.filter(
+        (num) => !wonNumbers.has(num)
+      );
+      let chosenNumber;
+      if (availableRigged.length > 0) {
+        chosenNumber = availableRigged[Math.floor(Math.random() * availableRigged.length)];
+      } else {
+        const allNumbers = [];
+        for (let i = start; i <= end; i += 1) {
+          const numStr = String(i);
+          if (!wonNumbers.has(numStr)) {
+            allNumbers.push(numStr);
+          }
+        }
+        if (allNumbers.length === 0) {
+          sendResponse(res, 400, JSON.stringify({ error: "暂无可抽取号码" }), "application/json");
+          return;
+        }
+        chosenNumber = allNumbers[Math.floor(Math.random() * allNumbers.length)];
+      }
+      winnerEntry = {
+        display_name: chosenNumber,
+        lottery_number: chosenNumber
+      };
+    } else {
+      let pool;
+      if (isSimulated) {
+        pool = store.guests.filter(
+          (guest) => !wonGuestIds.has(guest.id) && guest.name
+        );
+      } else {
+        const { checkinMap } = getCheckedInGuests(store);
+        pool = store.guests.filter(
+          (guest) =>
+            checkinMap.has(guest.id) &&
+            !wonGuestIds.has(guest.id) &&
+            guest.name
+        );
+      }
+      const riggedNames = prize.rigged_names || [];
+      const availableRiggedGuests = pool.filter(
+        (guest) =>
+          riggedNames.some(
+            (rn) => rn === guest.name
+          ) && !wonGuestIds.has(guest.id)
+      );
+      let chosen;
+      if (availableRiggedGuests.length > 0) {
+        chosen = availableRiggedGuests[Math.floor(Math.random() * availableRiggedGuests.length)];
+      } else {
+        if (pool.length === 0) {
+          sendResponse(res, 400, JSON.stringify({ error: "暂无可抽取来宾" }), "application/json");
+          return;
+        }
+        chosen = pool[Math.floor(Math.random() * pool.length)];
+      }
+      const phoneSuffix = chosen.phone && String(chosen.phone).replace(/\D/g, "").length >= 4
+        ? "(" + String(chosen.phone).replace(/\D/g, "").slice(-4) + ")"
+        : "";
+      winnerEntry = {
+        guest_id: chosen.id,
+        display_name: chosen.name + phoneSuffix
+      };
     }
-    const winner = eligible[Math.floor(Math.random() * eligible.length)];
-    store.winners.push({
+
+    const record = {
       id: nextId(store, "winners"),
       prize_id: prize.id,
-      guest_id: winner.id,
+      guest_id: winnerEntry.guest_id || null,
+      display_name: winnerEntry.display_name,
+      lottery_number: winnerEntry.lottery_number || "",
+      is_simulated: isSimulated,
       created_at: new Date().toISOString()
-    });
+    };
+    store.winners.push(record);
     saveStore(store);
     sendResponse(
       res,
       200,
-      JSON.stringify({ winner }),
+      JSON.stringify({ winner: record }),
       "application/json"
     );
     return;

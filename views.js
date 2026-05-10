@@ -3895,6 +3895,205 @@ ${renderTargetInviteImageDownloadScript()}
   );
 };
 
+const renderGuestStats = ({ guests, fields }) => {
+  const guestList = guests || [];
+  const fieldList = fields || [];
+
+  const builtInFields = [
+    { field_key: "attending", label: "出席状态", field_type: "select", options: "出席,未出席" },
+    { field_key: "attendees", label: "出席人数", field_type: "text", options: "" },
+    { field_key: "table_no", label: "席位号", field_type: "text", options: "" }
+  ];
+
+  const allFields = [...builtInFields, ...fieldList];
+
+  const getGuestFieldValue = (guest, field) => {
+    const key = field.field_key;
+    if (key === "attending") {
+      return guest.attending ? "出席" : "未出席";
+    }
+    if (key === "attendees") {
+      const raw = guest.responses?.attendees;
+      return raw ? String(raw).trim() : "未填写";
+    }
+    if (key === "table_no") {
+      const raw = String(guest.table_no || "").trim();
+      return raw || "未分配";
+    }
+    const rawValue = (guest.responses || {})[key] || "";
+    const formatted = formatCustomFieldValue(field, rawValue);
+    return formatted.trim() || "未填写";
+  };
+
+  const statFieldOptions = allFields.map((field) => {
+    const fieldType = normalizeCustomFieldType(field);
+    return {
+      key: field.field_key,
+      label: field.label,
+      fieldType,
+      domId: toDomId(field.field_key)
+    };
+  });
+
+  const fieldOptionsJson = JSON.stringify(statFieldOptions);
+  const guestsJson = JSON.stringify(
+    guestList.map((guest) => {
+      const row = { id: guest.id, name: guest.name };
+      allFields.forEach((field) => {
+        row[field.field_key] = getGuestFieldValue(guest, field);
+      });
+      return row;
+    })
+  );
+
+  return `
+<section class="card guest-stats-section">
+  <div class="section-header">
+    <div>
+      <h1>来宾信息分类统计</h1>
+      <p>按字段分类统计来宾信息，支持多字段交叉联动分析。</p>
+    </div>
+  </div>
+  <div class="guest-stats-controls">
+    <label class="guest-stats-control">
+      <span>主分类字段</span>
+      <select id="guest-stats-primary">
+        <option value="">请选择字段</option>
+        ${statFieldOptions
+          .map(
+            (opt) =>
+              `<option value="${escapeHtml(opt.key)}">${escapeHtml(opt.label)}</option>`
+          )
+          .join("")}
+      </select>
+    </label>
+    <label class="guest-stats-control">
+      <span>联动字段（可选）</span>
+      <select id="guest-stats-secondary">
+        <option value="">无</option>
+        ${statFieldOptions
+          .map(
+            (opt) =>
+              `<option value="${escapeHtml(opt.key)}">${escapeHtml(opt.label)}</option>`
+          )
+          .join("")}
+      </select>
+    </label>
+  </div>
+  <div id="guest-stats-result" class="guest-stats-result"></div>
+  <script>
+  (() => {
+    const fieldsData = ${fieldOptionsJson};
+    const guestsData = ${guestsJson};
+    const primarySelect = document.getElementById("guest-stats-primary");
+    const secondarySelect = document.getElementById("guest-stats-secondary");
+    const resultContainer = document.getElementById("guest-stats-result");
+
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function groupBy(data, key) {
+      const map = new Map();
+      data.forEach(function (item) {
+        var val = item[key] || "未填写";
+        if (!map.has(val)) map.set(val, []);
+        map.get(val).push(item);
+      });
+      return map;
+    }
+
+    function renderStats() {
+      var primary = primarySelect.value;
+      var secondary = secondarySelect.value;
+      if (!primary) {
+        resultContainer.innerHTML = '<div class="guest-stats-empty">请选择一个主分类字段开始统计</div>';
+        return;
+      }
+
+      var grouped = groupBy(guestsData, primary);
+      var html = "";
+
+      if (secondary && secondary !== primary) {
+        html += '<div class="stats-cross-table-wrap"><table class="stats-cross-table">';
+        var secondaryGrouped = groupBy(guestsData, secondary);
+        var secondaryValues = Array.from(secondaryGrouped.keys()).sort();
+        var primaryValues = Array.from(grouped.keys()).sort();
+
+        html += '<thead><tr><th>' + escHtml(getFieldLabel(primary)) + ' \\\\ ' + escHtml(getFieldLabel(secondary)) + '</th>';
+        secondaryValues.forEach(function (val) {
+          html += '<th>' + escHtml(val) + '</th>';
+        });
+        html += '<th class="stats-total">合计</th></tr></thead><tbody>';
+
+        primaryValues.forEach(function (pVal) {
+          var items = grouped.get(pVal) || [];
+          html += '<tr><td class="stats-row-header">' + escHtml(pVal) + '</td>';
+          secondaryValues.forEach(function (sVal) {
+            var matched = items.filter(function (item) { return item[secondary] === sVal; });
+            var count = matched.length;
+            html += '<td>';
+            if (count > 0) {
+              html += '<span class="stats-cell-count">' + count + '</span>';
+              html += '<span class="stats-cell-names" title="' + escHtml(matched.map(function(m){ return m.name; }).join('、')) + '">' + escHtml(matched.map(function(m){ return m.name; }).join('、')) + '</span>';
+            } else {
+              html += '<span class="stats-cell-zero">-</span>';
+            }
+            html += '</td>';
+          });
+          html += '<td class="stats-total">' + items.length + '</td></tr>';
+        });
+
+        html += '<tr class="stats-footer-row"><td class="stats-row-header">合计</td>';
+        secondaryValues.forEach(function (sVal) {
+          var sItems = secondaryGrouped.get(sVal) || [];
+          html += '<td class="stats-total">' + sItems.length + '</td>';
+        });
+        html += '<td class="stats-total stats-grand-total">' + guestsData.length + '</td></tr>';
+
+        html += '</tbody></table></div>';
+      } else {
+        html += '<div class="stats-single-grid">';
+        var sortedEntries = Array.from(grouped.entries()).sort(function (a, b) {
+          return b[1].length - a[1].length;
+        });
+        sortedEntries.forEach(function (entry) {
+          var value = entry[0];
+          var items = entry[1];
+          var pct = guestsData.length > 0 ? Math.round((items.length / guestsData.length) * 100) : 0;
+          html += '<div class="stats-single-card">';
+          html += '<div class="stats-single-header">';
+          html += '<span class="stats-single-value">' + escHtml(value) + '</span>';
+          html += '<span class="stats-single-count">' + items.length + ' 人</span>';
+          html += '</div>';
+          html += '<div class="stats-single-bar"><div class="stats-single-bar-fill" style="width:' + pct + '%"></div></div>';
+          html += '<div class="stats-single-names">' + escHtml(items.map(function(m){ return m.name; }).join('、')) + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      resultContainer.innerHTML = html;
+    }
+
+    function getFieldLabel(key) {
+      var found = fieldsData.find(function (f) { return f.key === key; });
+      return found ? found.label : key;
+    }
+
+    primarySelect.addEventListener("change", renderStats);
+    secondarySelect.addEventListener("change", renderStats);
+    renderStats();
+  })();
+  </script>
+</section>
+`;
+};
+
 const renderGuests = ({ guests, fields, tables, error, errorGuestId }) => {
   const tableList = tables || [];
   const getGuestPartySize = (guest) => {
@@ -4017,6 +4216,20 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
           0
         );
         const isOverCapacity = seatCount > 0 && assignedCount > seatCount;
+        const ringRadius = seatCount <= 6 ? 55 : seatCount <= 10 ? 60 : seatCount <= 14 ? 64 : 68;
+        const seatDots = seatCount
+          ? Array.from({ length: seatCount })
+              .map((_, index) => {
+                const angle = (2 * Math.PI * index) / seatCount - Math.PI / 2;
+                const cx = 80;
+                const cy = 80;
+                const x = cx + ringRadius * Math.cos(angle);
+                const y = cy + ringRadius * Math.sin(angle);
+                const isAssigned = index < assignedCount;
+                return `<span class="table-seat ${isAssigned ? "seat-assigned" : "seat-open"}" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px"></span>`;
+              })
+              .join("")
+          : "";
         return `
       <div class="table-card">
         <div class="table-visual">
@@ -4027,23 +4240,12 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
             }</div>
             ${
               seatCount
-                ? `<div class="table-seat-ring" style="--seat-count:${escapeHtml(
-                    seatCount
-                  )}">
-              ${Array.from({ length: seatCount })
-                .map(
-                  (_, index) =>
-                    `<span class="table-seat ${
-                      index < assignedCount ? "seat-assigned" : "seat-open"
-                    }" style="--seat-index:${index}"></span>`
-                )
-                .join("")}
-            </div>`
+                ? `<div class="table-seat-ring">${seatDots}</div>`
                 : ""
             }
           </div>
           <div class="table-visual-seats">
-            ${seatCount ? `${escapeHtml(seatCount)} 位` : "未填写座位数"}
+            ${seatCount ? `${assignedCount} / ${escapeHtml(seatCount)} 位` : "未填写座位数"}
           </div>
           <div class="table-visual-preference">${
             table.preference ? escapeHtml(table.preference) : "暂无偏好"
@@ -4061,56 +4263,88 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
           ${
             assignedGuests.length
               ? assignedGuests
-                  .map(
-                    (guest) =>
-                      `<span class="table-guest-name">${escapeHtml(
-                        formatGuestDisplayName(guest)
-                      )}</span>`
-                  )
+                  .map((guest) => {
+                    const partySize = getGuestPartySize(guest);
+                    const hasKids = partySize > 1;
+                    const label = escapeHtml(guest.name || "-");
+                    const kidBadge = hasKids ? `<span class="kid-badge">携${partySize - 1}人</span>` : "";
+                    return `<span class="table-guest-name">${label}${kidBadge}</span>`;
+                  })
                   .join("")
               : `<span class="muted">暂无来宾</span>`
           }
         </div>
-        <form method="post" action="/admin/tables/${table.id}/update" class="table-form">
-          <label>
-            桌号
-            <input type="text" name="table_no" value="${escapeHtml(
-              table.table_no
-            )}" required />
-          </label>
-          <label>
-            昵称
-            <input type="text" name="nickname" value="${escapeHtml(
-              table.nickname || ""
-            )}" />
-          </label>
-          <label>
-            座位数
-            <input type="number" name="seats" min="0" value="${escapeHtml(
-              table.seats || 0
-            )}" />
-          </label>
-          <label>
-            宴席偏好
-            <input type="text" name="preference" value="${escapeHtml(
-              table.preference || ""
-            )}" />
-          </label>
-          <button class="btn ghost" type="submit">保存修改</button>
-        </form>
-        <div class="table-actions">
+        <div class="table-actions-bar">
+          <button type="button" class="btn ghost" data-table-edit="${table.id}" data-table-no="${escapeHtml(table.table_no)}" data-nickname="${escapeHtml(table.nickname || "")}" data-seats="${escapeHtml(table.seats || 0)}" data-preference="${escapeHtml(table.preference || "")}">编辑</button>
           <a class="btn ghost" href="/admin/tables/${table.id}/print" target="_blank">打印此桌</a>
           <form method="post" action="/admin/tables/${table.id}/delete" class="inline-form">
-            <button class="btn ghost" type="submit" onclick="return confirm('确认删除该桌子吗？');">删除</button>
+            <button class="btn ghost btn-delete" type="submit" onclick="return confirm('确认删除该桌子吗？');">删除</button>
           </form>
         </div>
       </div>`;
       })
       .join("")}
-  </div>`
+  </div>
+  <div class="table-edit-modal" id="tableEditModal">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>编辑桌子</h3>
+        <button type="button" class="modal-close" id="modalClose">&times;</button>
+      </div>
+      <form method="post" action="" id="tableEditForm" class="modal-form">
+        <label>
+          桌号
+          <input type="text" name="table_no" id="editTableNo" required />
+        </label>
+        <label>
+          昵称
+          <input type="text" name="nickname" id="editNickname" />
+        </label>
+        <label>
+          座位数
+          <input type="number" name="seats" min="0" id="editSeats" />
+        </label>
+        <label>
+          宴席偏好
+          <input type="text" name="preference" id="editPreference" />
+        </label>
+        <div class="modal-actions">
+          <button class="btn primary" type="submit">保存修改</button>
+          <button type="button" class="btn ghost" id="modalCancel">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+  (function() {
+    var modal = document.getElementById("tableEditModal");
+    var backdrop = document.getElementById("modalBackdrop");
+    var closeBtn = document.getElementById("modalClose");
+    var cancelBtn = document.getElementById("modalCancel");
+    var form = document.getElementById("tableEditForm");
+    var editBtns = document.querySelectorAll("[data-table-edit]");
+    editBtns.forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        form.action = "/admin/tables/" + btn.dataset.tableEdit + "/update";
+        document.getElementById("editTableNo").value = btn.dataset.tableNo;
+        document.getElementById("editNickname").value = btn.dataset.nickname;
+        document.getElementById("editSeats").value = btn.dataset.seats;
+        document.getElementById("editPreference").value = btn.dataset.preference;
+        modal.classList.add("active");
+      });
+    });
+    function closeModal() { modal.classList.remove("active"); }
+    backdrop.addEventListener("click", closeModal);
+    closeBtn.addEventListener("click", closeModal);
+    cancelBtn.addEventListener("click", closeModal);
+  })();
+  </script>`
       : `<p class="muted">暂无桌子信息，请先新增桌子。</p>`
   }
 </section>
+
+${renderGuestStats({ guests, fields })}
 
 <section class="card">
   <div class="section-header">
@@ -4125,30 +4359,14 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
       </form>
     </div>
   </div>
-  <div class="table-scroll">
-  <table class="table guest-table">
-    <thead>
-      <tr>
-        <th>姓名</th>
-        <th>手机号</th>
-        <th>出席</th>
-        <th class="attendee-count-col">出席人数</th>
-        <th>席位号</th>
-        <th>自定义信息</th>
-        <th>操作</th>
-      </tr>
-    </thead>
-    <tbody>
+  <div class="guest-cards">
       ${guests
         .map((guest, index) => {
           const tableNo = String(guest.table_no || "").trim();
           const hasValidTable = tableNo && tableNos.has(tableNo);
-          const rowClasses = [];
-          if (!hasValidTable) rowClasses.push("guest-row-alert");
-          if (guest.attendee_adjusted) rowClasses.push("guest-row-adjusted");
-          const rowClass = rowClasses.length
-            ? ` class="${rowClasses.join(" ")}"`
-            : "";
+          const cardClasses = ["guest-card"];
+          if (!hasValidTable) cardClasses.push("guest-card-alert");
+          if (guest.attendee_adjusted) cardClasses.push("guest-card-adjusted");
           const isErrorGuest =
             error && Number(errorGuestId) === Number(guest.id);
           const prevGuest = guests[index - 1];
@@ -4177,15 +4395,18 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
             ? `已填写 ${customInfoCount} 项`
             : "暂无填写";
           const dialogId = `guest-dialog-${guest.id}`;
+          const attendingLabel = guest.attending ? "出席" : "未出席";
+          const attendingClass = guest.attending ? "guest-tag-yes" : "guest-tag-no";
           return `
-      <tr${rowClass} id="guest-${guest.id}">
-        <td>
-          <input type="text" name="name" value="${escapeHtml(
-            guest.name
-          )}" form="guest-form-${guest.id}" required />
+      <div class="${cardClasses.join(" ")}" id="guest-${guest.id}">
+        <div class="guest-card-header">
+          <div class="guest-card-name-row">
+            <span class="guest-card-name">${escapeHtml(guest.name)}</span>
+            <span class="guest-card-tag ${attendingClass}">${attendingLabel}</span>
+          </div>
           ${
             getCompanionLabel(guest)
-              ? `<div class="muted">显示：${escapeHtml(
+              ? `<div class="muted" style="font-size:12px;">显示：${escapeHtml(
                   formatGuestDisplayName(guest)
                 )}</div>`
               : ""
@@ -4195,110 +4416,118 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
               ? `<div class="adjusted-note">人数变动，请尽快调整桌位安排。</div>`
               : ""
           }
-        </td>
-        <td>
-          <input type="tel" name="phone" value="${escapeHtml(
-            guest.phone
-          )}" form="guest-form-${guest.id}" required />
-        </td>
-        <td>
-          ${renderAttendingSelect({
-            name: "attending",
-            value: guest.attending,
-            required: true,
-            form: `guest-form-${guest.id}`
-          })}
-        </td>
-        <td class="attendee-count-col">
-          ${renderAttendeeInput({
-            name: "attendees",
-            value: guest.responses?.attendees,
-            required: true,
-            form: `guest-form-${guest.id}`
-          })}
-        </td>
-        <td>
-          <select name="table_no" form="guest-form-${guest.id}" data-auto-save="true">
-            <option value="">未分配</option>
-            ${tableList
-              .map((table) => {
-                const tableValue = String(table.table_no || "").trim();
-                if (!tableValue) return "";
-                const nickname = table.nickname
-                  ? ` · ${escapeHtml(table.nickname)}`
-                  : "";
-                return `<option value="${escapeHtml(tableValue)}" ${
-                  tableValue === tableNo ? "selected" : ""
-                }>桌 ${escapeHtml(tableValue)}${nickname}</option>`;
-              })
-              .join("")}
-          </select>
-          ${
-            isErrorGuest
-              ? `<div class="field-error">${escapeHtml(error)}</div>`
-              : ""
-          }
-        </td>
-        <td>
-          <div class="custom-info-cell">
-            <div>
-              <div class="custom-info-summary">${customInfoSummary}</div>
+        </div>
+        <div class="guest-card-body">
+          <div class="guest-card-fields">
+            <div class="guest-card-field">
+              <span class="guest-card-label">姓名</span>
+              <input type="text" name="name" value="${escapeHtml(
+                guest.name
+              )}" form="guest-form-${guest.id}" required />
+            </div>
+            <div class="guest-card-field">
+              <span class="guest-card-label">手机号</span>
+              <input type="tel" name="phone" value="${escapeHtml(
+                guest.phone
+              )}" form="guest-form-${guest.id}" required />
+            </div>
+            <div class="guest-card-field">
+              <span class="guest-card-label">出席</span>
+              ${renderAttendingSelect({
+                name: "attending",
+                value: guest.attending,
+                required: true,
+                form: `guest-form-${guest.id}`
+              })}
+            </div>
+            <div class="guest-card-field">
+              <span class="guest-card-label">出席人数</span>
+              ${renderAttendeeInput({
+                name: "attendees",
+                value: guest.responses?.attendees,
+                required: true,
+                form: `guest-form-${guest.id}`
+              })}
+            </div>
+            <div class="guest-card-field">
+              <span class="guest-card-label">席位号</span>
+              <select name="table_no" form="guest-form-${guest.id}" data-auto-save="true">
+                <option value="">未分配</option>
+                ${tableList
+                  .map((table) => {
+                    const tableValue = String(table.table_no || "").trim();
+                    if (!tableValue) return "";
+                    const nickname = table.nickname
+                      ? ` · ${escapeHtml(table.nickname)}`
+                      : "";
+                    return `<option value="${escapeHtml(tableValue)}" ${
+                      tableValue === tableNo ? "selected" : ""
+                    }>桌 ${escapeHtml(tableValue)}${nickname}</option>`;
+                  })
+                  .join("")}
+              </select>
               ${
-                customInfoPreview
-                  ? `<div class="custom-info-preview">${customInfoPreview}</div>`
-                  : `<div class="muted">可点击查看/编辑</div>`
+                isErrorGuest
+                  ? `<div class="field-error">${escapeHtml(error)}</div>`
+                  : ""
               }
             </div>
-            <button class="btn ghost small" type="button" data-dialog-target="${dialogId}">查看/编辑</button>
           </div>
-          <dialog class="guest-dialog" id="${dialogId}">
-            <div class="dialog-header">
-              <div>
-                <strong>自定义信息</strong>
-                <div class="muted">${escapeHtml(guest.name)} · ${
+          <div class="guest-card-custom">
+            <div class="guest-card-custom-summary">
+              <span class="custom-info-summary">${customInfoSummary}</span>
+              ${
+                customInfoPreview
+                  ? `<span class="custom-info-preview">${customInfoPreview}</span>`
+                  : ""
+              }
+            </div>
+          </div>
+        </div>
+        <div class="guest-card-actions">
+          <form method="post" action="/admin/guests/${
+            guest.id
+          }/update" class="inline-form" id="guest-form-${guest.id}">
+            <input type="hidden" name="return_to" value="guest-${guest.id}" />
+            <button class="btn guest-card-btn guest-card-btn-save" type="submit">💾 保存</button>
+          </form>
+          <button class="btn guest-card-btn guest-card-btn-edit" type="button" data-dialog-target="${dialogId}">📝 自定义</button>
+          <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
+            <input type="hidden" name="return_to" value="guest-${focusGuestId}" />
+            <button class="btn guest-card-btn guest-card-btn-delete" type="submit" onclick="return confirm('确认删除该来宾吗？');">🗑 删除</button>
+          </form>
+        </div>
+        <dialog class="guest-dialog" id="${dialogId}">
+          <div class="dialog-header">
+            <div>
+              <strong>自定义信息</strong>
+              <div class="muted">${escapeHtml(guest.name)} · ${
             customInfoCount ? customInfoSummary : "暂无填写"
           }</div>
-              </div>
-              <button class="btn ghost small" type="button" data-dialog-close>关闭</button>
             </div>
-            <div class="dialog-body">
-              <div class="form-stack dialog-fields">
-                ${customInfoItems
-                  .map((item) =>
-                    renderCustomFieldInput({
-                      field: item.field,
-                      value: item.rawValue,
-                      form: `guest-form-${guest.id}`
-                    })
-                  )
-                  .join("")}
-              </div>
-            </div>
-            <div class="dialog-actions">
-              <button class="btn ghost" type="button" data-dialog-close>关闭</button>
-              <button class="btn primary" type="submit" form="guest-form-${guest.id}">保存修改</button>
-            </div>
-          </dialog>
-        </td>
-        <td>
-          <div class="guest-actions">
-            <form method="post" action="/admin/guests/${
-              guest.id
-            }/update" class="inline-form" id="guest-form-${guest.id}">
-              <input type="hidden" name="return_to" value="guest-${guest.id}" />
-              <button class="btn ghost" type="submit">保存</button>
-            </form>
-            <form method="post" action="/admin/guests/${guest.id}/delete" class="inline-form">
-              <input type="hidden" name="return_to" value="guest-${focusGuestId}" />
-              <button class="btn ghost" type="submit" onclick="return confirm('确认删除该来宾吗？');">删除</button>
-            </form>
+            <button class="btn ghost small" type="button" data-dialog-close>关闭</button>
           </div>
-        </td>
-      </tr>`;
+          <div class="dialog-body">
+            <div class="form-stack dialog-fields">
+              ${customInfoItems
+                .map((item) =>
+                  renderCustomFieldInput({
+                    field: item.field,
+                    value: item.rawValue,
+                    form: `guest-form-${guest.id}`
+                  })
+                )
+                .join("")}
+            </div>
+          </div>
+          <div class="dialog-actions">
+            <button class="btn ghost" type="button" data-dialog-close>关闭</button>
+            <button class="btn primary" type="submit" form="guest-form-${guest.id}">保存修改</button>
+          </div>
+        </dialog>
+      </div>`;
         })
         .join("")}
-    </tbody>
-  </table>
   </div>
 </section>
 <script>
@@ -4847,12 +5076,54 @@ const renderSeatCards = (guests) =>
 `
   );
 
-const renderAdminLottery = ({ prizes, winners }) =>
-  adminLayout(
+const renderAdminLottery = ({ prizes, winners, settings, guests, checkedInGuests }) => {
+  const mode = settings.lottery_mode || "checkin";
+  const numStart = settings.lottery_number_start || 1;
+  const numEnd = settings.lottery_number_end || 100;
+  const simulate = settings.lottery_simulate || false;
+  const checkedInNames = (checkedInGuests || []).map((g) => g.name).filter(Boolean);
+  const allGuestNames = (guests || []).map((g) => g.name).filter(Boolean);
+  const numberRangeSize = Math.max(0, numEnd - numStart + 1);
+
+  return adminLayout(
     "现场摇奖",
     `
 <section class="card">
-  <h1>摇奖设置</h1>
+  <h1>抽奖模式设置</h1>
+  <form method="post" action="/admin/lottery/settings" class="form-grid">
+    <label>
+      抽奖模式
+      <select name="lottery_mode">
+        <option value="checkin" ${mode === "checkin" ? "selected" : ""}>签到名单模式</option>
+        <option value="number_range" ${mode === "number_range" ? "selected" : ""}>抽奖牌号码模式</option>
+      </select>
+    </label>
+    <label>
+      号码起始（号码模式生效）
+      <input type="number" name="lottery_number_start" min="1" value="${numStart}" />
+    </label>
+    <label>
+      号码结束（号码模式生效）
+      <input type="number" name="lottery_number_end" min="1" value="${numEnd}" />
+    </label>
+    <label>
+      <input type="checkbox" name="lottery_simulate" value="1" ${simulate ? "checked" : ""} />
+      开启模拟模式（使用全部来宾，无需签到，用于排练测试）
+    </label>
+    <button class="btn primary" type="submit">保存设置</button>
+  </form>
+  <div class="notice" style="margin-top:12px;">
+    当前模式：<strong>${mode === "checkin" ? "签到名单" : "抽奖牌号码"}</strong>
+    ${simulate ? '<span style="color:#ff3d81;margin-left:12px;">⚡ 模拟排练中</span>' : ""}
+    ${mode === "checkin"
+      ? ` | 已签到 <strong>${checkedInNames.length}</strong> 人，全部来宾 <strong>${allGuestNames.length}</strong> 人`
+      : ` | 号码范围 <strong>${numStart} ~ ${numEnd}</strong>（共 <strong>${numberRangeSize}</strong> 个号码）`
+    }
+  </div>
+</section>
+
+<section class="card">
+  <h1>奖品设置</h1>
   <form method="post" action="/admin/lottery/prizes" class="form-grid">
     <label>
       奖品名称
@@ -4861,6 +5132,14 @@ const renderAdminLottery = ({ prizes, winners }) =>
     <label>
       数量
       <input type="number" name="quantity" min="1" value="1" />
+    </label>
+    <label>
+      内定请柬名字（逗号分隔，友情内定）
+      <input type="text" name="rigged_names" placeholder="如：张三,李四" />
+    </label>
+    <label>
+      内定号码（逗号分隔，友情内定）
+      <input type="text" name="rigged_numbers" placeholder="如：7,18,66" />
     </label>
     <button class="btn primary" type="submit">新增奖品</button>
   </form>
@@ -4872,6 +5151,14 @@ const renderAdminLottery = ({ prizes, winners }) =>
       <div>
         <strong>${escapeHtml(prize.name)}</strong>
         <p>数量：${prize.quantity}</p>
+        ${prize.rigged_names && prize.rigged_names.length
+          ? `<p style="color:#ff3d81;font-size:13px;">内定名字：${prize.rigged_names.map((n) => escapeHtml(n)).join("、")}</p>`
+          : ""
+        }
+        ${prize.rigged_numbers && prize.rigged_numbers.length
+          ? `<p style="color:#7c4dff;font-size:13px;">内定号码：${prize.rigged_numbers.join("、")}</p>`
+          : ""
+        }
       </div>
       <form method="post" action="/admin/lottery/prizes/${prize.id}/delete">
         <button class="btn ghost" type="submit">删除</button>
@@ -4883,30 +5170,45 @@ const renderAdminLottery = ({ prizes, winners }) =>
 </section>
 <section class="card">
   <h2>中奖记录</h2>
+  ${winners.length ? `<form method="post" action="/lottery/reset" style="margin-bottom:12px;">
+    <button class="btn ghost" type="submit" onclick="return confirm('确认重置所有中奖名单？')">重置全部中奖记录</button>
+  </form>` : ""}
   <table class="table">
     <thead>
       <tr>
         <th>奖品</th>
-        <th>来宾</th>
+        <th>中奖人/号码</th>
         <th>时间</th>
+        <th>类型</th>
+        <th>操作</th>
       </tr>
     </thead>
     <tbody>
-      ${winners
-        .map(
-          (winner) => `
+      ${winners.length
+        ? winners
+            .map(
+              (winner) => `
       <tr>
         <td>${escapeHtml(winner.prize_name)}</td>
-        <td>${escapeHtml(winner.guest_name)}</td>
+        <td>${escapeHtml(winner.display_name)}</td>
         <td>${escapeHtml(winner.created_at)}</td>
+        <td>${winner.is_simulated ? "模拟" : "正式"}</td>
+        <td>
+          <form method="post" action="/admin/lottery/winners/${winner.id}/delete" class="inline-form">
+            <button class="btn ghost" type="submit" onclick="return confirm('确认删除该中奖记录？')">删除</button>
+          </form>
+        </td>
       </tr>`
-        )
-        .join("")}
+            )
+            .join("")
+        : `<tr><td colspan="5" class="muted">暂无中奖记录</td></tr>`
+      }
     </tbody>
   </table>
 </section>
 `
   );
+};
 
 const renderAdminCheckins = ({
   checkinUrl,
@@ -6471,11 +6773,40 @@ const renderCheckin = ({
 `;
 };
 
-const renderLottery = ({ prizes, isAdmin, guests, winners }) => {
-  const winnerGuestIds = new Set((winners || []).map((winner) => winner.guest_id));
-  const eligibleGuests = (guests || []).filter(
-    (guest) => !winnerGuestIds.has(guest.id)
+const renderLottery = ({ prizes, isAdmin, checkedInGuests, allGuests, winners, settings }) => {
+  const mode = settings.lottery_mode || "checkin";
+  const isSimulated = settings.lottery_simulate || false;
+  const numStart = settings.lottery_number_start || 1;
+  const numEnd = settings.lottery_number_end || 100;
+
+  const wonDisplayNames = new Set(
+    (winners || []).map((w) => w.display_name).filter(Boolean)
   );
+  const wonGuestIds = new Set(
+    (winners || []).map((w) => w.guest_id).filter(Boolean)
+  );
+
+  let poolItems = [];
+  if (mode === "number_range") {
+    for (let i = numStart; i <= numEnd; i += 1) {
+      const numStr = String(i);
+      if (!wonDisplayNames.has(numStr)) {
+        poolItems.push({ id: numStr, label: numStr });
+      }
+    }
+  } else {
+    const source = isSimulated
+      ? (allGuests || [])
+      : (checkedInGuests || []);
+    source.forEach((guest) => {
+      if (guest.name && !wonGuestIds.has(guest.id)) {
+        const phoneDigits = guest.phone ? String(guest.phone).replace(/\D/g, "") : "";
+        const suffix = phoneDigits.length >= 4 ? "(" + phoneDigits.slice(-4) + ")" : "";
+        poolItems.push({ id: String(guest.id), label: guest.name + suffix });
+      }
+    });
+  }
+
   const prizeSummaries = (prizes || []).map((prize) => {
     const prizeWinners = (winners || []).filter(
       (winner) => winner.prize_id === prize.id
@@ -6483,279 +6814,418 @@ const renderLottery = ({ prizes, isAdmin, guests, winners }) => {
     const remaining = Math.max(prize.quantity - prizeWinners.length, 0);
     return { ...prize, remaining };
   });
+
   const recentWinners = (winners || [])
-    .slice(-6)
+    .slice(-10)
     .reverse()
     .map((winner) => ({
       ...winner,
       prize_name: winner.prize_name || "",
-      guest_name: winner.guest_name || ""
+      display_name: winner.display_name || ""
     }));
+
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>婚礼现场摇奖</title>
+    <title>紧张刺激的抽奖环节</title>
     ${renderFaviconLinks()}
     <link rel="stylesheet" href="/public/css/lottery.css" />
   </head>
   <body>
     <div class="lottery-screen">
-      <a class="lottery-site-logo" href="/invite" aria-label="Wedding Manager">
-        <img src="${SITE_LOGO_ICON_PATH}" alt="" />
-        <span>Wedding Manager</span>
-      </a>
-      <header class="stage-header">
-        <div class="stage-title">现场摇奖时刻</div>
+      <header class="lottery-header">
+        <h1 class="lottery-title">紧张刺激的抽奖环节</h1>
+        ${isSimulated ? '<div class="simulate-badge">排练模式</div>' : ''}
       </header>
-      <div class="lottery-panel">
-        <aside class="panel prize-panel">
-          <div class="panel-title">
-            <h2>奖品列表</h2>
-            <span>挑选当前奖项</span>
-          </div>
+      <div class="lottery-body">
+        <aside class="prize-sidebar">
+          <div class="sidebar-title">当前奖项</div>
           <ul class="prize-list">
-            ${
-              prizeSummaries.length
-                ? prizeSummaries
-                    .map(
-                      (prize) => `
-            <li data-id="${prize.id}" data-remaining="${prize.remaining}" class="${
-                        prize.remaining === 0 ? "disabled" : ""
-                      }">
-              <div class="prize-main">
-                <span>${escapeHtml(prize.name)}</span>
-                <small>剩余 ${prize.remaining}</small>
-              </div>
-              <div class="prize-status">${
-                prize.remaining === 0 ? "已抽完" : "正在抽取"
-              }</div>
+            ${prizeSummaries.length
+              ? prizeSummaries
+                  .map(
+                    (prize) => `
+            <li data-id="${prize.id}" data-remaining="${prize.remaining}" class="${prize.remaining === 0 ? "disabled" : ""}">
+              <div class="prize-name">${escapeHtml(prize.name)}</div>
+              <div class="prize-meta">剩余 <strong>${prize.remaining}</strong> 份</div>
             </li>`
-                    )
-                    .join("")
-                : `<li class="empty">暂无奖品，请在后台先配置</li>`
+                  )
+                  .join("")
+              : `<li class="empty">暂无奖品</li>`
             }
           </ul>
+          <div class="sidebar-stats">
+            <div class="stat-row"><span>抽奖池</span><strong id="poolCount">${poolItems.length}</strong></div>
+            <div class="stat-row"><span>已中奖</span><strong id="wonCount">${winners?.length || 0}</strong></div>
+          </div>
+          ${isAdmin
+            ? `<div class="sidebar-actions">
+              <button class="btn-draw" id="drawBtn">开始抽奖</button>
+              <button class="btn-reset" id="resetBtn">重置</button>
+            </div>`
+            : `<div class="sidebar-hint">请登录后台操作</div>`
+          }
         </aside>
-        <section class="panel draw-panel">
-          <div class="draw-effects">
-            <div class="pulse-ring"></div>
-            <div class="pulse-ring delay"></div>
-            <div class="pulse-ring delay-two"></div>
+        <main class="bubble-area" id="bubbleArea">
+          <div class="bubble-container" id="bubbleContainer"></div>
+          <div class="draw-overlay" id="drawOverlay">
+            <div class="overlay-title" id="overlayTitle">等待抽奖</div>
+            <div class="overlay-name" id="overlayName"></div>
+            <div class="overlay-hint" id="overlayHint"></div>
           </div>
-          <div class="status-grid">
-            <div class="status-card">
-              <span>确认出席</span>
-              <strong id="attendingCount">${guests?.length || 0}</strong>
-            </div>
-            <div class="status-card highlight">
-              <span>待抽人数</span>
-              <strong id="eligibleCount">${eligibleGuests.length}</strong>
-            </div>
-            <div class="status-card">
-              <span>已开奖</span>
-              <strong id="awardedCount">${winners?.length || 0}</strong>
-            </div>
-          </div>
-          <div class="lottery-display">
-            <div class="smoke-layer" aria-hidden="true"></div>
-            <div class="countdown" id="countdown">3</div>
-            <div class="winner-title">心跳时刻</div>
-            <div class="winner-name" id="winnerName">等待抽取</div>
-            <div class="rolling-list" id="rollingList" aria-live="polite"></div>
-            <div class="action-bar">
-              ${
-                isAdmin
-                  ? `<button class="btn glow" id="drawBtn">开始摇奖</button>
-                <button class="btn ghost" id="resetBtn">重置名单</button>`
-                  : `<div class="hint">登录后台后即可开始抽奖</div>`
-              }
-            </div>
-          </div>
-          <div class="winner-feed">
-            <div class="panel-title">
-              <h3>最新揭晓</h3>
-              <span>喜悦瞬间</span>
-            </div>
-            <ul id="winnerFeed">
-              ${
-                recentWinners.length
-                  ? recentWinners
-                      .map(
-                        (winner) => `
-              <li>
-                <span>${escapeHtml(winner.guest_name || "-")}</span>
-                <small>${escapeHtml(winner.prize_name || "幸运奖")}</small>
-              </li>`
-                      )
-                      .join("")
-                  : `<li class="empty">等待幸运揭晓</li>`
-              }
-            </ul>
-          </div>
-        </section>
+        </main>
       </div>
+      <footer class="winner-ticker">
+        <div class="ticker-label">最新揭晓</div>
+        <ul class="ticker-list" id="winnerFeed">
+          ${recentWinners.length
+            ? recentWinners
+                .map(
+                  (w) => `
+            <li>
+              <span class="ticker-name">${escapeHtml(w.display_name)}</span>
+              <span class="ticker-prize">${escapeHtml(w.prize_name)}</span>
+            </li>`
+                )
+                .join("")
+            : `<li class="empty">等待幸运揭晓</li>`
+          }
+        </ul>
+      </footer>
     </div>
     <script>
+    (function() {
+      const poolItems = ${JSON.stringify(poolItems)};
+      const remainingItems = poolItems.slice();
       const drawBtn = document.getElementById("drawBtn");
-      const winnerName = document.getElementById("winnerName");
-      const winnerTitle = document.querySelector(".winner-title");
-      const rollingList = document.getElementById("rollingList");
-      const smokeLayer = document.querySelector(".smoke-layer");
-      const prizes = document.querySelectorAll(".prize-list li");
-      const countdown = document.getElementById("countdown");
-      const eligibleCount = document.getElementById("eligibleCount");
-      const awardedCount = document.getElementById("awardedCount");
-      const winnerFeed = document.getElementById("winnerFeed");
       const resetBtn = document.getElementById("resetBtn");
-
-      const guestNames = ${JSON.stringify(
-        eligibleGuests.map((guest) => guest.name).filter(Boolean)
-      )};
-      const totalAttending = ${guests?.length || 0};
-      let rollingTimer;
-      let isDrawing = false;
+      const bubbleContainer = document.getElementById("bubbleContainer");
+      const bubbleArea = document.getElementById("bubbleArea");
+      const drawOverlay = document.getElementById("drawOverlay");
+      const overlayTitle = document.getElementById("overlayTitle");
+      const overlayName = document.getElementById("overlayName");
+      const overlayHint = document.getElementById("overlayHint");
+      const poolCount = document.getElementById("poolCount");
+      const wonCount = document.getElementById("wonCount");
+      const winnerFeed = document.getElementById("winnerFeed");
+      const prizeListItems = document.querySelectorAll(".prize-list li");
       let activePrize = null;
+      let isDrawing = false;
+      let bubbles = [];
+      let animationFrameId = null;
 
-      const setActivePrize = (prize) => {
-        if (!prize || prize.classList.contains("disabled")) return;
-        prizes.forEach((item) => item.classList.remove("active"));
-        prize.classList.add("active");
-        activePrize = prize;
-      };
-      const firstAvailable = Array.from(prizes).find(
-        (prize) => !prize.classList.contains("disabled")
+      const firstAvailable = Array.from(prizeListItems).find(
+        (li) => !li.classList.contains("disabled")
       );
-      if (firstAvailable) {
-        setActivePrize(firstAvailable);
-      }
-      prizes.forEach((prize) => {
-        prize.addEventListener("click", () => {
-          setActivePrize(prize);
+      if (firstAvailable) setActivePrize(firstAvailable);
+      prizeListItems.forEach((li) => {
+        li.addEventListener("click", () => {
+          if (!li.classList.contains("disabled")) setActivePrize(li);
         });
       });
-      const buildRollingList = () => {
-        if (!rollingList) return;
-        const pool = guestNames.length ? guestNames : ["等待来宾加入"];
-        const items = Array.from({ length: 18 }, () => {
-          return pool[Math.floor(Math.random() * pool.length)];
+
+      function setActivePrize(li) {
+        prizeListItems.forEach((item) => item.classList.remove("active"));
+        li.classList.add("active");
+        activePrize = li;
+      }
+
+      function measureTextWidth(text, fontSize) {
+        var span = document.createElement("span");
+        span.style.visibility = "hidden";
+        span.style.position = "absolute";
+        span.style.whiteSpace = "nowrap";
+        span.style.fontSize = fontSize + "px";
+        span.style.fontWeight = "600";
+        span.style.fontFamily = '"Inter","PingFang SC","Microsoft YaHei",sans-serif';
+        span.textContent = text;
+        document.body.appendChild(span);
+        var w = span.offsetWidth;
+        document.body.removeChild(span);
+        return w;
+      }
+
+      function createBubbles() {
+        bubbleContainer.innerHTML = "";
+        bubbles = [];
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = null;
+        }
+        var areaW = bubbleArea.clientWidth;
+        var areaH = bubbleArea.clientHeight;
+        var count = remainingItems.length;
+        if (!count || areaW <= 0 || areaH <= 0) return;
+
+        var baseFontSize = 13;
+        var items = remainingItems.map(function(item) {
+          var textW = measureTextWidth(item.label, baseFontSize);
+          var minDim = Math.max(48, textW + 24);
+          return { item: item, minDim: minDim };
         });
-        const loopItems = [...items, ...items];
-        rollingList.innerHTML = \`<ul>\${loopItems
-          .map((name) => \`<li>\${name}</li>\`)
-          .join("")}</ul>\`;
-      };
 
-      const updateCounts = () => {
-        if (eligibleCount) eligibleCount.textContent = guestNames.length;
-        if (awardedCount)
-          awardedCount.textContent = totalAttending - guestNames.length;
-      };
+        var totalArea = 0;
+        items.forEach(function(it) { totalArea += it.minDim * it.minDim; });
+        var scale = Math.sqrt((areaW * areaH * 0.65) / totalArea);
+        scale = Math.max(0.6, Math.min(1.8, scale));
 
-      const updatePrizeRemaining = (prize) => {
-        if (!prize) return;
-        const remaining = Number(prize.dataset.remaining || 0) - 1;
-        prize.dataset.remaining = remaining;
-        const remainingEl = prize.querySelector("small");
-        if (remainingEl) remainingEl.textContent = \`剩余 \${remaining}\`;
-        if (remaining <= 0) {
-          prize.classList.add("disabled");
-          const status = prize.querySelector(".prize-status");
-          if (status) status.textContent = "已抽完";
-          const nextAvailable = Array.from(prizes).find(
-            (item) => !item.classList.contains("disabled")
-          );
-          if (nextAvailable) {
-            setActivePrize(nextAvailable);
+        var placed = [];
+        items.forEach(function(it, i) {
+          var dim = Math.round(it.minDim * scale);
+          dim = Math.max(48, dim);
+          var el = document.createElement("div");
+          el.className = "bubble";
+          el.textContent = it.item.label;
+          el.dataset.id = it.item.id;
+          el.dataset.label = it.item.label;
+          el.style.width = dim + "px";
+          el.style.height = dim + "px";
+          el.style.lineHeight = "normal";
+          el.style.fontSize = baseFontSize + "px";
+
+          var x, y, bestX = 0, bestY = 0, bestDist = -1;
+          var cols = Math.max(1, Math.floor(areaW / (dim * 1.15)));
+          var cellW = areaW / cols;
+          var rows = Math.ceil(count / cols);
+          var cellH = areaH / Math.max(1, rows);
+          var col = i % cols;
+          var row = Math.floor(i / cols);
+          bestX = (col + 0.5) * cellW - dim / 2 + (Math.random() - 0.5) * cellW * 0.2;
+          bestY = (row + 0.5) * cellH - dim / 2 + (Math.random() - 0.5) * cellH * 0.2;
+          bestX = Math.max(4, Math.min(areaW - dim - 4, bestX));
+          bestY = Math.max(4, Math.min(areaH - dim - 4, bestY));
+
+          var hue = Math.random() * 60 + 320;
+          var sat = 50 + Math.random() * 30;
+          var light = 55 + Math.random() * 20;
+          el.style.background = "radial-gradient(circle at 35% 35%, hsla(" + hue + "," + sat + "%," + (light + 20) + "%,0.9), hsla(" + hue + "," + sat + "%," + light + "%,0.7))";
+          el.style.boxShadow = "0 4px 20px hsla(" + hue + "," + sat + "%," + light + "%,0.3), inset 0 -2px 6px hsla(" + hue + ",60%,80%,0.3)";
+          el.style.transform = "translate(" + bestX.toFixed(1) + "px," + bestY.toFixed(1) + "px)";
+
+          var bubble = {
+            el: el,
+            x: bestX,
+            y: bestY,
+            vx: (Math.random() - 0.5) * 0.6,
+            vy: (Math.random() - 0.5) * 0.6,
+            phase: Math.random() * Math.PI * 2,
+            size: dim,
+            alive: true
+          };
+          bubbles.push(bubble);
+          bubbleContainer.appendChild(el);
+        });
+        startFloatAnimation();
+      }
+
+      function startFloatAnimation() {
+        var lastTime = performance.now();
+        function tick(now) {
+          var dt = (now - lastTime) / 1000;
+          lastTime = now;
+          var areaW = bubbleArea.clientWidth;
+          var areaH = bubbleArea.clientHeight;
+          bubbles.forEach(function(b) {
+            if (!b.alive) return;
+            b.phase += dt * 0.8;
+            b.x += b.vx + Math.sin(b.phase) * 0.3;
+            b.y += b.vy + Math.cos(b.phase * 0.7) * 0.3;
+            if (b.x < 0) { b.x = 0; b.vx = Math.abs(b.vx); }
+            if (b.y < 0) { b.y = 0; b.vy = Math.abs(b.vy); }
+            if (b.x + b.size > areaW) { b.x = areaW - b.size; b.vx = -Math.abs(b.vx); }
+            if (b.y + b.size > areaH) { b.y = areaH - b.size; b.vy = -Math.abs(b.vy); }
+            b.el.style.transform = "translate(" + b.x.toFixed(1) + "px," + b.y.toFixed(1) + "px)";
+          });
+          animationFrameId = requestAnimationFrame(tick);
+        }
+        animationFrameId = requestAnimationFrame(tick);
+      }
+
+      function eliminateBubble(bubble) {
+        return new Promise(function(resolve) {
+          bubble.alive = false;
+          bubble.el.style.left = bubble.x.toFixed(1) + "px";
+          bubble.el.style.top = bubble.y.toFixed(1) + "px";
+          bubble.el.style.transform = "";
+          bubble.el.classList.add("popping");
+          setTimeout(function() {
+            if (bubble.el.parentNode) bubble.el.parentNode.removeChild(bubble.el);
+            resolve();
+          }, 500);
+        });
+      }
+
+      function highlightBubble(bubble) {
+        return new Promise(function(resolve) {
+          bubble.el.classList.add("winner");
+          bubble.vx = 0;
+          bubble.vy = 0;
+          setTimeout(resolve, 800);
+        });
+      }
+
+      async function runDrawAnimation(winnerLabel) {
+        var winnerBubble = null;
+        for (var k = 0; k < bubbles.length; k++) {
+          if (bubbles[k].alive && (bubbles[k].el.dataset.label === winnerLabel || bubbles[k].el.dataset.id === winnerLabel)) {
+            winnerBubble = bubbles[k];
+            break;
           }
         }
-      };
 
-      const startRolling = () => {
-        buildRollingList();
-        rollingList?.classList.add("active");
-        smokeLayer?.classList.add("active");
-        winnerTitle.textContent = "心跳时刻";
-        winnerName.textContent = "名单滚动中...";
-        winnerName.classList.add("rolling");
-        rollingTimer = setInterval(buildRollingList, 900);
-      };
+        var toEliminate = bubbles.filter(function(b) { return b.alive && b !== winnerBubble; });
 
-      const stopRolling = () => {
-        rollingList?.classList.remove("active");
-        smokeLayer?.classList.remove("active");
-        winnerName.classList.remove("rolling");
-        clearInterval(rollingTimer);
-        rollingTimer = null;
-        winnerTitle.textContent = "幸运来宾";
-      };
-
-      const runCountdown = async () => {
-        if (!countdown) return;
-        countdown.classList.add("active");
-        for (const value of ["3", "2", "1"]) {
-          countdown.textContent = value;
-          await new Promise((resolve) => setTimeout(resolve, 500));
+        for (var i = 0; i < toEliminate.length; i++) {
+          var batchEnd = Math.min(i + 3, toEliminate.length);
+          var promises = [];
+          for (var j = i; j < batchEnd; j++) {
+            promises.push(eliminateBubble(toEliminate[j]));
+          }
+          await Promise.all(promises);
+          i = batchEnd - 1;
+          await new Promise(function(r) { setTimeout(r, 60); });
         }
-        countdown.classList.remove("active");
-      };
 
-      const addWinnerFeed = (name, prizeName) => {
+        if (winnerBubble) {
+          var areaW = bubbleArea.clientWidth;
+          var areaH = bubbleArea.clientHeight;
+          var targetSize = Math.min(200, Math.max(100, areaW * 0.18));
+          winnerBubble.el.style.transition = "left 0.7s ease-out, top 0.7s ease-out, width 0.7s ease-out, height 0.7s ease-out, font-size 0.7s ease-out";
+          winnerBubble.el.style.left = (areaW / 2 - targetSize / 2).toFixed(1) + "px";
+          winnerBubble.el.style.top = (areaH / 2 - targetSize / 2).toFixed(1) + "px";
+          winnerBubble.el.style.width = targetSize + "px";
+          winnerBubble.el.style.height = targetSize + "px";
+          winnerBubble.el.style.fontSize = "22px";
+          winnerBubble.el.style.transform = "";
+          winnerBubble.alive = false;
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+          }
+          await highlightBubble(winnerBubble);
+        }
+      }
+
+      function updateCounts() {
+        if (poolCount) poolCount.textContent = remainingItems.length;
+        var currentWon = bubbleArea.dataset.extraWon ? parseInt(bubbleArea.dataset.extraWon) : 0;
+        if (wonCount) wonCount.textContent = currentWon;
+      }
+
+      function updatePrizeRemaining() {
+        if (!activePrize) return;
+        var remaining = Number(activePrize.dataset.remaining || 0) - 1;
+        activePrize.dataset.remaining = remaining;
+        var meta = activePrize.querySelector(".prize-meta");
+        if (meta) meta.innerHTML = "剩余 <strong>" + remaining + "</strong> 份";
+        if (remaining <= 0) {
+          activePrize.classList.add("disabled");
+          var nextAvailable = Array.from(prizeListItems).find(
+            function(li) { return !li.classList.contains("disabled"); }
+          );
+          if (nextAvailable) setActivePrize(nextAvailable);
+        }
+      }
+
+      function addWinnerFeed(name, prizeName) {
         if (!winnerFeed) return;
-        if (winnerFeed.querySelector(".empty")) {
-          winnerFeed.innerHTML = "";
-        }
-        const item = document.createElement("li");
-        item.innerHTML = \`<span>\${name}</span><small>\${prizeName}</small>\`;
-        winnerFeed.prepend(item);
-      };
+        var empty = winnerFeed.querySelector(".empty");
+        if (empty) empty.remove();
+        var li = document.createElement("li");
+        li.innerHTML = '<span class="ticker-name">' + name + '</span><span class="ticker-prize">' + prizeName + '</span>';
+        winnerFeed.prepend(li);
+      }
+
+      createBubbles();
+
+      function showResult(winnerLabel) {
+        overlayTitle.textContent = "恭喜中奖！";
+        overlayName.textContent = winnerLabel;
+        overlayHint.textContent = "点击任意位置继续";
+        drawOverlay.classList.add("active");
+        drawOverlay.classList.add("result-mode");
+
+        var clickHandler = function() {
+            drawOverlay.classList.remove("active");
+            drawOverlay.classList.remove("result-mode");
+            drawOverlay.style.pointerEvents = "";
+            drawOverlay.style.cursor = "";
+            drawOverlay.removeEventListener("click", clickHandler);
+            overlayHint.textContent = "";
+            createBubbles();
+            isDrawing = false;
+            drawBtn.disabled = false;
+          };
+        drawOverlay.style.pointerEvents = "auto";
+        drawOverlay.style.cursor = "pointer";
+        drawOverlay.addEventListener("click", clickHandler);
+      }
 
       if (drawBtn) {
-        drawBtn.addEventListener("click", async () => {
+        drawBtn.addEventListener("click", async function() {
           if (!activePrize || isDrawing) return;
           if (Number(activePrize.dataset.remaining || 0) <= 0) return;
-          if (!guestNames.length) {
-            winnerName.textContent = "暂无可抽取来宾";
+          if (!remainingItems.length) {
+            overlayName.textContent = "暂无可抽对象";
             return;
           }
           isDrawing = true;
           drawBtn.disabled = true;
-          await runCountdown();
-          startRolling();
-          const minRollTime = new Promise((resolve) =>
-            setTimeout(resolve, 3600)
-          );
+          drawOverlay.classList.add("active");
+          drawOverlay.classList.remove("result-mode");
+          overlayTitle.textContent = "抽奖中...";
+          overlayName.textContent = "";
+          overlayHint.textContent = "";
+
           try {
-            const response = await fetch("/lottery/draw", {
+            var response = await fetch("/lottery/draw", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ prizeId: activePrize.dataset.id })
             });
-            const result = await response.json();
-            await minRollTime;
-            stopRolling();
-            if (!response.ok) {
-              winnerName.textContent = result.error || "抽奖失败";
+            var contentType = response.headers.get("content-type") || "";
+            if (!response.ok || contentType.indexOf("application/json") === -1) {
+              overlayTitle.textContent = "";
+              overlayName.textContent = "请先登录后台后再抽奖";
+              drawOverlay.classList.remove("active");
+              isDrawing = false;
+              drawBtn.disabled = false;
               return;
             }
-            winnerName.textContent = result.winner.name;
-            const winnerIndex = guestNames.indexOf(result.winner.name);
-            if (winnerIndex >= 0) {
-              guestNames.splice(winnerIndex, 1);
+            var result = await response.json();
+            if (result.error) {
+              overlayTitle.textContent = "";
+              overlayName.textContent = result.error;
+              drawOverlay.classList.remove("active");
+              isDrawing = false;
+              drawBtn.disabled = false;
+              return;
             }
+
+            var winnerLabel = result.winner.display_name;
+            await runDrawAnimation(winnerLabel);
+
+            var idx = remainingItems.findIndex(function(item) { return item.label === winnerLabel || item.id === winnerLabel; });
+            if (idx >= 0) remainingItems.splice(idx, 1);
+
+            var currentWon = bubbleArea.dataset.extraWon ? parseInt(bubbleArea.dataset.extraWon) : 0;
+            bubbleArea.dataset.extraWon = currentWon + 1;
+            var currentPrizeName = activePrize.querySelector(".prize-name") ? activePrize.querySelector(".prize-name").textContent : "";
             updateCounts();
-            updatePrizeRemaining(activePrize);
+            updatePrizeRemaining();
             addWinnerFeed(
-              result.winner.name,
-              activePrize.querySelector("span")?.textContent || "幸运奖"
+              winnerLabel,
+              currentPrizeName
             );
+
+            showResult(winnerLabel);
           } catch (error) {
-            await minRollTime;
-            stopRolling();
-            winnerName.textContent = "抽奖失败，请重试";
-          } finally {
+            overlayTitle.textContent = "";
+            overlayName.textContent = "网络错误，请重试";
+            drawOverlay.classList.remove("active");
             isDrawing = false;
             drawBtn.disabled = false;
           }
@@ -6763,15 +7233,12 @@ const renderLottery = ({ prizes, isAdmin, guests, winners }) => {
       }
 
       if (resetBtn) {
-        resetBtn.addEventListener("click", async () => {
+        resetBtn.addEventListener("click", async function() {
           if (!confirm("确认重置所有中奖名单？")) return;
           try {
-            const response = await fetch("/lottery/reset", {
-              method: "POST"
-            });
+            var response = await fetch("/lottery/reset", { method: "POST" });
             if (!response.ok) {
-              const result = await response.json();
-              alert(result.error || "重置失败");
+              alert("重置失败");
               return;
             }
             location.reload();
@@ -6781,7 +7248,10 @@ const renderLottery = ({ prizes, isAdmin, guests, winners }) => {
         });
       }
 
-      updateCounts();
+      window.addEventListener("resize", function() {
+        if (!isDrawing) createBubbles();
+      });
+    })();
     </script>
   </body>
 </html>

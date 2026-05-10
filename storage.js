@@ -622,11 +622,48 @@ const seedStore = (store) => {
       .filter(Boolean);
   }
 
+  const lotteryModeValues = new Set(["checkin", "number_range"]);
+  store.settings.lottery_mode = lotteryModeValues.has(
+    String(store.settings.lottery_mode || "").trim()
+  )
+    ? String(store.settings.lottery_mode).trim()
+    : "checkin";
+
+  store.settings.lottery_number_start = Math.max(
+    1,
+    Math.floor(Number(store.settings.lottery_number_start) || 1)
+  );
+  store.settings.lottery_number_end = Math.max(
+    store.settings.lottery_number_start,
+    Math.floor(Number(store.settings.lottery_number_end) || 100)
+  );
+
+  store.settings.lottery_simulate = normalizeBoolean(
+    store.settings.lottery_simulate,
+    false
+  );
+
   store.guests = store.guests || [];
   store.tables = store.tables || [];
   store.checkins = store.checkins || [];
-  store.prizes = store.prizes || [];
-  store.winners = store.winners || [];
+  store.prizes = (store.prizes || []).map((prize) => ({
+    ...prize,
+    rigged_names: Array.isArray(prize.rigged_names)
+      ? prize.rigged_names
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+      : [],
+    rigged_numbers: Array.isArray(prize.rigged_numbers)
+      ? prize.rigged_numbers
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+      : []
+  }));
+  store.winners = (store.winners || []).map((winner) => ({
+    ...winner,
+    display_name: String(winner.display_name || winner.guest_name || "").trim(),
+    is_simulated: normalizeBoolean(winner.is_simulated, false)
+  }));
   store.ledger = store.ledger || [];
   store.counters = store.counters || {};
   return store;
