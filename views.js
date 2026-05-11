@@ -1943,6 +1943,7 @@ const renderDashboard = ({
         Math.round((checkedInGuestCount / registeredGuestCount) * 100)
       )
     : 0;
+
   return adminLayout(
     "仪表盘",
     `
@@ -4949,31 +4950,52 @@ const renderTablePrint = ({ tables, guests }) => {
   const pages = tableList
     .map((table, index) => {
       const tableNo = String(table.table_no || "").trim();
+      const seatCount = Math.max(Number(table.seats) || 0, 0);
       const assignedGuests = guestList.filter(
         (guest) => String(guest.table_no || "").trim() === tableNo
       );
-      const hasNextPage = index < tableList.length - 1;
+      const assignedCount = assignedGuests.reduce(
+        (sum, g) => {
+          const raw = g?.responses?.attendees;
+          if (!raw) return sum + 1;
+          const parsed = Number.parseInt(String(raw).trim(), 10);
+          return sum + (Number.isNaN(parsed) || parsed < 1 ? 1 : parsed);
+        },
+        0
+      );
       return `
-  <section class="table-print-page${hasNextPage ? " page-break" : ""}">
-    <div class="table-print-hero">
-      <div class="table-print-number">桌号 ${escapeHtml(tableNo)}</div>
-      <div class="table-print-nickname">${escapeHtml(
-        table.nickname || "未命名桌"
-      )}</div>
-    </div>
-    <div class="table-print-guest-list">
-      ${
-        assignedGuests.length
-          ? assignedGuests
-              .map(
-                (guest) => `
-        <div class="table-print-guest-name">${escapeHtml(
-          formatGuestDisplayName(guest)
-        )}</div>`
-              )
-              .join("")
-          : `<div class="table-print-guest-empty">暂无来宾分配</div>`
-      }
+  <section class="table-print-page">
+    <div class="tp-inner">
+      <div class="tp-top">
+        <div class="tp-label">桌号</div>
+        <div class="tp-number">${escapeHtml(tableNo)}</div>
+        ${table.nickname ? `<div class="tp-nickname">${escapeHtml(table.nickname)}</div>` : ""}
+      </div>
+      <div class="tp-info">
+        ${seatCount ? `<span>座位 ${assignedCount} / ${seatCount}</span>` : ""}
+        ${table.preference ? `<span class="tp-pref">${escapeHtml(table.preference)}</span>` : ""}
+      </div>
+      <div class="tp-guests">
+        ${
+          assignedGuests.length
+            ? assignedGuests
+                .map((guest) => {
+                  const raw = guest?.responses?.attendees;
+                  let partySize = 1;
+                  if (raw) {
+                    const p = Number.parseInt(String(raw).trim(), 10);
+                    if (!Number.isNaN(p) && p >= 1) partySize = p;
+                  }
+                  const badge = partySize > 1 ? `<span class="tp-party">+${partySize - 1}</span>` : "";
+                  return `<div class="tp-guest">${escapeHtml(guest.name || "-")}${badge}</div>`;
+                })
+                .join("")
+            : `<div class="tp-empty">暂无来宾分配</div>`
+        }
+      </div>
+      <div class="tp-footer">
+        <span>Wedding Manager</span>
+      </div>
     </div>
   </section>`;
     })
@@ -4987,18 +5009,181 @@ const renderTablePrint = ({ tables, guests }) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>桌号打印</title>
     ${renderFaviconLinks()}
-    <link rel="stylesheet" href="/public/css/main.css" />
+    <style>
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .screen-header {
+        text-align: center;
+        padding: 20px;
+        background: #f7f5f2;
+      }
+      .screen-header h2 {
+        margin: 0 0 12px;
+        font-size: 20px;
+        color: #5c4a40;
+      }
+      .screen-actions {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+      }
+      .screen-actions .btn {
+        display: inline-block;
+        padding: 10px 24px;
+        border-radius: 10px;
+        font-size: 14px;
+        text-decoration: none;
+        cursor: pointer;
+        border: 1px solid #e3dcd5;
+        background: #fff;
+        color: #5c4a40;
+      }
+      .screen-actions .btn.primary {
+        background: #ff3d81;
+        color: #fff;
+        border-color: #ff3d81;
+      }
+      .table-print-page {
+        width: 210mm;
+        height: 297mm;
+        box-sizing: border-box;
+        page-break-after: always;
+        break-after: page;
+        position: relative;
+        overflow: hidden;
+        background: #fff;
+        border: 3px double #e3dcd5;
+        margin: 0 auto;
+      }
+      .table-print-page:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+      .tp-inner {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20mm 16mm;
+        box-sizing: border-box;
+      }
+      .tp-top {
+        text-align: center;
+        flex-shrink: 0;
+      }
+      .tp-label {
+        font-size: 16px;
+        color: #9c8f85;
+        letter-spacing: 6px;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+      .tp-number {
+        font-family: "Playfair Display", Georgia, serif;
+        font-size: 80px;
+        font-weight: 700;
+        color: #2f2a26;
+        line-height: 1.1;
+        margin-bottom: 6px;
+      }
+      .tp-nickname {
+        font-size: 22px;
+        color: #7c6b60;
+        margin-top: 4px;
+      }
+      .tp-info {
+        display: flex;
+        gap: 16px;
+        font-size: 14px;
+        color: #9c8f85;
+        margin-top: 12px;
+      }
+      .tp-pref {
+        background: #f4e7e1;
+        padding: 2px 10px;
+        border-radius: 6px;
+      }
+      .tp-guests {
+        flex: 1;
+        display: flex;
+        flex-wrap: wrap;
+        align-content: center;
+        justify-content: center;
+        gap: 10px;
+        width: 100%;
+        padding: 16px 0;
+      }
+      .tp-guest {
+        background: linear-gradient(135deg, #fff8f9, #f8f4ff);
+        border: 1px solid #eee1d8;
+        padding: 10px 20px;
+        border-radius: 12px;
+        font-size: 20px;
+        color: #2f2a26;
+        letter-spacing: 0.5px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .tp-party {
+        font-size: 13px;
+        background: #fff3e0;
+        color: #e65100;
+        padding: 1px 7px;
+        border-radius: 999px;
+        font-weight: 600;
+      }
+      .tp-empty {
+        color: #bbb;
+        font-size: 18px;
+      }
+      .tp-footer {
+        font-size: 12px;
+        color: #ccc;
+        letter-spacing: 1px;
+        flex-shrink: 0;
+      }
+      @media print {
+        .screen-header {
+          display: none !important;
+        }
+        .table-print-page {
+          border: none;
+          margin: 0;
+        }
+      }
+      @media screen {
+        body {
+          background: #f0ede9;
+        }
+        .table-print-page {
+          margin-bottom: 20px;
+          box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+        }
+      }
+    </style>
   </head>
-  <body class="print-body">
-    <div class="print-logo">
-      <img src="${SITE_LOGO_ICON_PATH}" alt="" />
-      <span>Wedding Manager</span>
+  <body>
+    <div class="screen-header">
+      <h2>桌号打印预览</h2>
+      <div class="screen-actions">
+        <button class="btn primary" onclick="window.print()">一键打印</button>
+        <a class="btn" href="/admin/guests">返回来宾管理</a>
+      </div>
     </div>
-    <div class="print-actions">
-      <button class="btn primary" type="button" onclick="window.print()">一键打印</button>
-      <a class="btn ghost" href="/admin/guests">返回来宾管理</a>
-    </div>
-    ${pages || `<p class="muted">暂无桌子可打印。</p>`}
+    ${pages || `<p style="text-align:center;color:#999;padding:40px;">暂无桌子可打印。</p>`}
   </body>
 </html>
 `;
@@ -5084,6 +5269,7 @@ const renderAdminLottery = ({ prizes, winners, settings, guests, checkedInGuests
   const checkedInNames = (checkedInGuests || []).map((g) => g.name).filter(Boolean);
   const allGuestNames = (guests || []).map((g) => g.name).filter(Boolean);
   const numberRangeSize = Math.max(0, numEnd - numStart + 1);
+  const selectorGuestNames = simulate ? allGuestNames : checkedInNames;
 
   return adminLayout(
     "现场摇奖",
@@ -5135,11 +5321,21 @@ const renderAdminLottery = ({ prizes, winners, settings, guests, checkedInGuests
     </label>
     <label>
       内定请柬名字（逗号分隔，友情内定）
-      <input type="text" name="rigged_names" placeholder="如：张三,李四" />
+      <input type="text" name="rigged_names" id="rigged_names_input" placeholder="如：张三,李四" />
+      ${selectorGuestNames.length ? `<button type="button" class="btn ghost picker-btn" data-target="rigged_names_input" data-source='${JSON.stringify(selectorGuestNames)}'>从名单选择</button>` : ""}
     </label>
     <label>
       内定号码（逗号分隔，友情内定）
       <input type="text" name="rigged_numbers" placeholder="如：7,18,66" />
+    </label>
+    <label>
+      排除请柬名字（逗号分隔，不会抽到）
+      <input type="text" name="excluded_names" id="excluded_names_input" placeholder="如：王五,赵六" />
+      ${selectorGuestNames.length ? `<button type="button" class="btn ghost picker-btn" data-target="excluded_names_input" data-source='${JSON.stringify(selectorGuestNames)}'>从名单选择</button>` : ""}
+    </label>
+    <label>
+      排除号码（逗号分隔，不会抽到）
+      <input type="text" name="excluded_numbers" placeholder="如：13,14" />
     </label>
     <button class="btn primary" type="submit">新增奖品</button>
   </form>
@@ -5157,6 +5353,14 @@ const renderAdminLottery = ({ prizes, winners, settings, guests, checkedInGuests
         }
         ${prize.rigged_numbers && prize.rigged_numbers.length
           ? `<p style="color:#7c4dff;font-size:13px;">内定号码：${prize.rigged_numbers.join("、")}</p>`
+          : ""
+        }
+        ${prize.excluded_names && prize.excluded_names.length
+          ? `<p style="color:#999;font-size:13px;">排除名字：${prize.excluded_names.map((n) => escapeHtml(n)).join("、")}</p>`
+          : ""
+        }
+        ${prize.excluded_numbers && prize.excluded_numbers.length
+          ? `<p style="color:#999;font-size:13px;">排除号码：${prize.excluded_numbers.join("、")}</p>`
           : ""
         }
       </div>
@@ -5206,6 +5410,85 @@ const renderAdminLottery = ({ prizes, winners, settings, guests, checkedInGuests
     </tbody>
   </table>
 </section>
+<div class="table-edit-modal" id="namePickerModal">
+  <div class="modal-backdrop" id="namePickerBackdrop"></div>
+  <div class="modal-content" style="max-height:80vh;display:flex;flex-direction:column;">
+    <div class="modal-header">
+      <h3>从名单选择</h3>
+      <button type="button" class="modal-close" id="namePickerClose">&times;</button>
+    </div>
+    <div class="picker-search">
+      <input type="text" id="pickerSearchInput" placeholder="搜索名字..." />
+    </div>
+    <div class="picker-list" id="pickerList"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn primary" id="pickerConfirm">确认选择</button>
+      <button type="button" class="btn ghost" id="pickerCancel">取消</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var modal = document.getElementById("namePickerModal");
+  if (!modal) return;
+  var backdrop = document.getElementById("namePickerBackdrop");
+  var closeBtn = document.getElementById("namePickerClose");
+  var cancelBtn = document.getElementById("pickerCancel");
+  var confirmBtn = document.getElementById("pickerConfirm");
+  var searchInput = document.getElementById("pickerSearchInput");
+  var listEl = document.getElementById("pickerList");
+  var targetInput = null;
+  var allNames = [];
+  var selectedSet = {};
+
+  function openPicker(targetId, source) {
+    targetInput = document.getElementById(targetId);
+    if (!targetInput) return;
+    allNames = source || [];
+    selectedSet = {};
+    var existing = targetInput.value.split(/[,，]/).map(function(s){return s.trim();}).filter(Boolean);
+    existing.forEach(function(n){ selectedSet[n] = true; });
+    renderList();
+    searchInput.value = "";
+    modal.classList.add("active");
+  }
+  function closePicker(){ modal.classList.remove("active"); targetInput = null; }
+  function renderList(){
+    var q = searchInput.value.trim().toLowerCase();
+    var html = "";
+    allNames.forEach(function(name){
+      if (q && name.toLowerCase().indexOf(q) < 0) return;
+      var checked = selectedSet[name] ? " checked" : "";
+      html += '<label class="picker-item"><input type="checkbox" data-name="' + name.replace(/"/g, "&quot;") + '"' + checked + ' />' + name + '</label>';
+    });
+    listEl.innerHTML = html || '<p class="muted">无匹配结果</p>';
+    listEl.querySelectorAll("input[type=checkbox]").forEach(function(cb){
+      cb.addEventListener("change", function(){
+        if (this.checked) selectedSet[this.dataset.name] = true;
+        else delete selectedSet[this.dataset.name];
+      });
+    });
+  }
+  searchInput.addEventListener("input", renderList);
+  confirmBtn.addEventListener("click", function(){
+    if (targetInput) {
+      var names = Object.keys(selectedSet);
+      targetInput.value = names.join(",");
+    }
+    closePicker();
+  });
+  backdrop.addEventListener("click", closePicker);
+  closeBtn.addEventListener("click", closePicker);
+  cancelBtn.addEventListener("click", closePicker);
+  document.querySelectorAll(".picker-btn").forEach(function(btn){
+    btn.addEventListener("click", function(e){
+      e.preventDefault();
+      var src = JSON.parse(btn.dataset.source || "[]");
+      openPicker(btn.dataset.target, src);
+    });
+  });
+})();
+</script>
 `
   );
 };

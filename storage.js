@@ -657,6 +657,16 @@ const seedStore = (store) => {
       ? prize.rigged_numbers
           .map((item) => String(item || "").trim())
           .filter(Boolean)
+      : [],
+    excluded_names: Array.isArray(prize.excluded_names)
+      ? prize.excluded_names
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+      : [],
+    excluded_numbers: Array.isArray(prize.excluded_numbers)
+      ? prize.excluded_numbers
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
       : []
   }));
   store.winners = (store.winners || []).map((winner) => ({

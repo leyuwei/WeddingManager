@@ -2788,12 +2788,22 @@ const handleRequest = async (req, res) => {
         .split(/[,，\n\r\s]+/)
         .map((item) => item.trim())
         .filter(Boolean);
+      const excludedNames = String(body.excluded_names || "")
+        .split(/[,，\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const excludedNumbers = String(body.excluded_numbers || "")
+        .split(/[,，\n\r\s]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
       store.prizes.push({
         id: nextId(store, "prizes"),
         name: body.name,
         quantity: Number(body.quantity) || 1,
         rigged_names: riggedNames,
-        rigged_numbers: riggedNumbers
+        rigged_numbers: riggedNumbers,
+        excluded_names: excludedNames,
+        excluded_numbers: excludedNumbers
       });
       saveStore(store);
     }
@@ -3543,8 +3553,9 @@ const handleRequest = async (req, res) => {
       const start = store.settings.lottery_number_start || 1;
       const end = store.settings.lottery_number_end || 100;
       const riggedNumbers = prize.rigged_numbers || [];
+      const excludedNumbers = prize.excluded_numbers || [];
       const availableRigged = riggedNumbers.filter(
-        (num) => !wonNumbers.has(num)
+        (num) => !wonNumbers.has(num) && !excludedNumbers.includes(num)
       );
       let chosenNumber;
       if (availableRigged.length > 0) {
@@ -3553,7 +3564,7 @@ const handleRequest = async (req, res) => {
         const allNumbers = [];
         for (let i = start; i <= end; i += 1) {
           const numStr = String(i);
-          if (!wonNumbers.has(numStr)) {
+          if (!wonNumbers.has(numStr) && !excludedNumbers.includes(numStr)) {
             allNumbers.push(numStr);
           }
         }
@@ -3580,6 +3591,12 @@ const handleRequest = async (req, res) => {
             checkinMap.has(guest.id) &&
             !wonGuestIds.has(guest.id) &&
             guest.name
+        );
+      }
+      const excludedNames = prize.excluded_names || [];
+      if (excludedNames.length > 0) {
+        pool = pool.filter(
+          (guest) => !excludedNames.some((en) => en === guest.name)
         );
       }
       const riggedNames = prize.rigged_names || [];
