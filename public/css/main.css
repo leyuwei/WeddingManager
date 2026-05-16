@@ -1211,6 +1211,16 @@ input[type="color"] {
   gap: 4px;
 }
 
+.table-guest-name.clickable {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.table-guest-name.clickable:hover {
+  background: #fce4ec;
+  border-color: #e8a0b0;
+}
+
 .kid-badge {
   background: #fff3e0;
   color: #e65100;
@@ -1304,6 +1314,29 @@ input[type="color"] {
 
 .table-edit-modal .modal-actions .btn {
   flex: 1;
+}
+
+.radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.modal-form-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  grid-column: span 2;
+  cursor: pointer;
 }
 
 .picker-search {

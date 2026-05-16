@@ -41,6 +41,9 @@ const defaultStore = () => ({
   prizes: [],
   winners: [],
   ledger: [],
+  hotels: [],
+  hotel_rooms: [],
+  hotel_assignments: [],
   settings: {},
   counters: {}
 });

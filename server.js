@@ -17,9 +17,13 @@ const {
   renderAdminCheckins,
   renderAdminLottery,
   renderLedger,
+  renderSeatingPlan,
   renderInvite,
   renderCheckin,
-  renderLottery
+  renderCheckinScreen,
+  renderLottery,
+  renderHotels,
+  renderVenue
 } = require("./views");
 
 const sessions = new Map();
@@ -2508,8 +2512,25 @@ const handleRequest = async (req, res) => {
       redirect(res, "/admin/guests");
       return;
     }
+    const currentTable = store.tables.find((t) => t.id === id);
+    const currentTableNo = currentTable ? normalizeTableNo(currentTable.table_no) : "";
+    if (tableNo !== currentTableNo) {
+      const duplicate = store.tables.find(
+        (t) => t.id !== id && normalizeTableNo(t.table_no) === tableNo
+      );
+      if (duplicate) {
+        redirect(
+          res,
+          "/admin/guests?error=" +
+            encodeURIComponent(
+              "桌号「" + tableNo + "」已存在，无法重复使用。"
+            )
+        );
+        return;
+      }
+    }
     const seats = Math.max(Number.parseInt(body.seats, 10) || 0, 0);
-    let previousTableNo = "";
+    let previousTableNo = currentTableNo;
     store.tables = store.tables.map((table) => {
       if (table.id !== id) return table;
       previousTableNo = normalizeTableNo(table.table_no);
@@ -2555,6 +2576,146 @@ const handleRequest = async (req, res) => {
     }
     saveStore(store);
     redirect(res, "/admin/guests");
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/admin/tables/export") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    const header = ["桌号", "昵称", "座位数", "宴席偏好", "已分配来宾"];
+    const rows = (store.tables || []).map((table) => {
+      const tableNo = String(table.table_no || "").trim();
+      const assignedGuests = (store.guests || [])
+        .filter((g) => String(g.table_no || "").trim() === tableNo)
+        .map((g) => g.name || "");
+      return [
+        tableNo,
+        table.nickname || "",
+        String(table.seats || 0),
+        table.preference || "",
+        assignedGuests.join("/")
+      ];
+    });
+    const escapeCsvValue = (value) => {
+      const text = String(value ?? "");
+      if (/[",\n]/.test(text)) {
+        return `"${text.replaceAll('"', '""')}"`;
+      }
+      return text;
+    };
+    const csv = [header, ...rows]
+      .map((row) => row.map(escapeCsvValue).join(","))
+      .join("\n");
+    const filename = `tables-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.writeHead(200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`
+    });
+    res.end(`\uFEFF${csv}`);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/tables/import") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const csvText = String(body.csv_text || "").trim();
+    if (!csvText) {
+      redirect(res, "/admin/guests");
+      return;
+    }
+    const store = loadStore();
+    const lines = csvText.split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length < 2) {
+      redirect(res, "/admin/guests");
+      return;
+    }
+    const parseCsvLine = (line) => {
+      const result = [];
+      let current = "";
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (i + 1 < line.length && line[i + 1] === '"') {
+              current += '"';
+              i += 1;
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            current += ch;
+          }
+        } else {
+          if (ch === '"') {
+            inQuotes = true;
+          } else if (ch === ",") {
+            result.push(current.trim());
+            current = "";
+          } else {
+            current += ch;
+          }
+        }
+      }
+      result.push(current.trim());
+      return result;
+    };
+    const normalizeTableNo = (v) => String(v || "").trim();
+    let imported = 0;
+    let updated = 0;
+    for (let i = 1; i < lines.length; i += 1) {
+      const cols = parseCsvLine(lines[i]);
+      const tableNo = normalizeTableNo(cols[0]);
+      if (!tableNo) continue;
+      const nickname = cols[1] || "";
+      const seats = Math.max(Number.parseInt(cols[2], 10) || 0, 0);
+      const preference = cols[3] || "";
+      const guestNames = (cols[4] || "").split("/").map((s) => s.trim()).filter(Boolean);
+      const existing = store.tables.find(
+        (t) => normalizeTableNo(t.table_no) === tableNo
+      );
+      if (existing) {
+        existing.nickname = nickname;
+        existing.seats = seats;
+        existing.preference = preference;
+        updated += 1;
+      } else {
+        store.tables.push({
+          id: nextId(store, "tables"),
+          table_no: tableNo,
+          nickname,
+          seats,
+          preference
+        });
+        imported += 1;
+      }
+      if (guestNames.length > 0) {
+        const nameSet = new Set(guestNames);
+        store.guests.forEach((g) => {
+          if (nameSet.has(g.name)) {
+            g.table_no = tableNo;
+          }
+        });
+      }
+    }
+    saveStore(store);
+    redirect(res, "/admin/guests");
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/seating-plan") {
+    const store = loadStore();
+    sendResponse(
+      res,
+      200,
+      renderSeatingPlan({
+        tables: sortTables(store.tables),
+        guests: store.guests,
+        coupleName: store.settings.couple_name || ""
+      })
+    );
     return;
   }
 
@@ -2840,6 +3001,381 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && pathname === "/admin/venue") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    sendResponse(
+      res,
+      200,
+      renderVenue({
+        tables: sortTables(store.tables),
+        guests: store.guests || [],
+        venue: store.venue_layout || null
+      })
+    );
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/venue/settings") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    store.venue_layout = {
+      name: String(body.name || "").trim() || "婚礼场地",
+      width: Math.max(Number(body.width) || 800, 400),
+      height: Math.max(Number(body.height) || 600, 300)
+    };
+    saveStore(store);
+    redirect(res, "/admin/venue");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/venue/save-positions") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const store = loadStore();
+    const positions = JSON.parse(body.positions || "[]");
+    positions.forEach(({ id, x, y }) => {
+      const table = store.tables.find((t) => t.id === id);
+      if (table) {
+        table.venue_x = Math.max(0, Math.min(100, Number(x) || 0));
+        table.venue_y = Math.max(0, Math.min(100, Number(y) || 0));
+      }
+    });
+    saveStore(store);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/admin/hotels") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const store = loadStore();
+    sendResponse(
+      res,
+      200,
+      renderHotels({
+        hotels: store.hotels || [],
+        rooms: store.hotel_rooms || [],
+        assignments: store.hotel_assignments || [],
+        guests: store.guests || [],
+        error: url.searchParams.get("error") || ""
+      })
+    );
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/hotels") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const name = String(body.name || "").trim();
+    const location = String(body.location || "").trim();
+    if (!name) {
+      redirect(res, "/admin/hotels");
+      return;
+    }
+    const store = loadStore();
+    store.hotels.push({
+      id: nextId(store, "hotels"),
+      name,
+      location
+    });
+    saveStore(store);
+    redirect(res, "/admin/hotels");
+    return;
+  }
+
+  const hotelEditMatch = pathname.match(/^\/admin\/hotels\/(\d+)\/update$/);
+  if (req.method === "POST" && hotelEditMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const id = Number(hotelEditMatch[1]);
+    const body = await parseBody(req);
+    const store = loadStore();
+    store.hotels = (store.hotels || []).map((hotel) => {
+      if (hotel.id !== id) return hotel;
+      return {
+        ...hotel,
+        name: String(body.name || "").trim() || hotel.name,
+        location: String(body.location || "").trim()
+      };
+    });
+    saveStore(store);
+    redirect(res, "/admin/hotels");
+    return;
+  }
+
+  const hotelDeleteMatch = pathname.match(/^\/admin\/hotels\/(\d+)\/delete$/);
+  if (req.method === "POST" && hotelDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const id = Number(hotelDeleteMatch[1]);
+    const store = loadStore();
+    const roomIds = new Set(
+      (store.hotel_rooms || [])
+        .filter((room) => room.hotel_id === id)
+        .map((room) => room.id)
+    );
+    store.hotels = (store.hotels || []).filter((hotel) => hotel.id !== id);
+    store.hotel_rooms = (store.hotel_rooms || []).filter(
+      (room) => room.hotel_id !== id
+    );
+    store.hotel_assignments = (store.hotel_assignments || []).filter(
+      (assignment) => !roomIds.has(assignment.room_id)
+    );
+    saveStore(store);
+    redirect(res, "/admin/hotels");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/hotel-rooms") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const hotelId = Number(body.hotel_id) || 0;
+    const roomType = String(body.room_type || "").trim();
+    const maxOccupancy = Math.max(Number(body.max_occupancy) || 1, 1);
+    const quantity = Math.max(Number(body.quantity) || 1, 1);
+    const price = String(body.price || "").trim();
+    const booker = String(body.booker || "").trim();
+    const platform = String(body.platform || "").trim();
+    const checkInDate = String(body.check_in_date || "").trim();
+    const checkOutDate = String(body.check_out_date || "").trim();
+    if (!hotelId || !roomType) {
+      redirect(res, "/admin/hotels");
+      return;
+    }
+    const store = loadStore();
+    const hotel = (store.hotels || []).find((h) => h.id === hotelId);
+    if (!hotel) {
+      redirect(res, "/admin/hotels");
+      return;
+    }
+    store.hotel_rooms.push({
+      id: nextId(store, "hotel_rooms"),
+      hotel_id: hotelId,
+      room_type: roomType,
+      max_occupancy: maxOccupancy,
+      quantity,
+      price,
+      booker,
+      platform,
+      check_in_date: checkInDate,
+      check_out_date: checkOutDate
+    });
+    saveStore(store);
+    redirect(res, "/admin/hotels");
+    return;
+  }
+
+  const roomEditMatch = pathname.match(
+    /^\/admin\/hotel-rooms\/(\d+)\/update$/
+  );
+  if (req.method === "POST" && roomEditMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const id = Number(roomEditMatch[1]);
+    const body = await parseBody(req);
+    const store = loadStore();
+    const oldRoom = (store.hotel_rooms || []).find((r) => r.id === id);
+    if (!oldRoom) {
+      redirect(res, "/admin/hotels");
+      return;
+    }
+    const oldQty = oldRoom.quantity;
+    const newQty = Math.max(Number(body.quantity) || 1, 1);
+    if (newQty < oldQty) {
+      const assignments = store.hotel_assignments || [];
+      const emptyIndices = [];
+      const occupiedIndices = [];
+      for (let i = 1; i <= oldQty; i += 1) {
+        const hasGuests = assignments.some(
+          (a) => a.room_id === id && a.room_index === i
+        );
+        if (hasGuests) {
+          occupiedIndices.push(i);
+        } else {
+          emptyIndices.push(i);
+        }
+      }
+      const toRemove = oldQty - newQty;
+      if (toRemove > emptyIndices.length) {
+        res.writeHead(302, {
+          Location:
+            "/admin/hotels?error=" +
+            encodeURIComponent(
+              "无法减少房间数量：有 " +
+                occupiedIndices.length +
+                " 个房间已分配来宾，请先取消分配后再减少房间数目。当前空房间仅 " +
+                emptyIndices.length +
+                " 个，最多可减少至 " +
+                (oldQty - emptyIndices.length) +
+                " 间。"
+            )
+        });
+        res.end();
+        return;
+      }
+      const removeSet = new Set(emptyIndices.slice(-toRemove));
+      store.hotel_assignments = assignments.filter(
+        (a) => !(a.room_id === id && removeSet.has(a.room_index))
+      );
+      let reindexMap = {};
+      let newIndex = 0;
+      for (let i = 1; i <= oldQty; i += 1) {
+        if (removeSet.has(i)) continue;
+        newIndex += 1;
+        if (i !== newIndex) reindexMap[i] = newIndex;
+      }
+      if (Object.keys(reindexMap).length > 0) {
+        store.hotel_assignments = store.hotel_assignments.map((a) => {
+          if (a.room_id === id && reindexMap[a.room_index]) {
+            return { ...a, room_index: reindexMap[a.room_index] };
+          }
+          return a;
+        });
+      }
+    }
+    store.hotel_rooms = (store.hotel_rooms || []).map((room) => {
+      if (room.id !== id) return room;
+      return {
+        ...room,
+        room_type: String(body.room_type || "").trim() || room.room_type,
+        max_occupancy: Math.max(Number(body.max_occupancy) || 1, 1),
+        quantity: newQty,
+        price: String(body.price || "").trim(),
+        booker: String(body.booker || "").trim(),
+        platform: String(body.platform || "").trim(),
+        check_in_date: String(body.check_in_date || "").trim(),
+        check_out_date: String(body.check_out_date || "").trim()
+      };
+    });
+    saveStore(store);
+    redirect(res, "/admin/hotels");
+    return;
+  }
+
+  const roomDeleteMatch = pathname.match(
+    /^\/admin\/hotel-rooms\/(\d+)\/delete$/
+  );
+  if (req.method === "POST" && roomDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const id = Number(roomDeleteMatch[1]);
+    const store = loadStore();
+    store.hotel_rooms = (store.hotel_rooms || []).filter(
+      (room) => room.id !== id
+    );
+    store.hotel_assignments = (store.hotel_assignments || []).filter(
+      (assignment) => assignment.room_id !== id
+    );
+    saveStore(store);
+    redirect(res, "/admin/hotels");
+    return;
+  }
+
+  const roomConfirmMatch = pathname.match(
+    /^\/admin\/hotel-rooms\/(\d+)\/confirm$/
+  );
+  if (req.method === "POST" && roomConfirmMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const id = Number(roomConfirmMatch[1]);
+    const body = await parseBody(req);
+    const roomIndex = Math.max(Number(body.room_index) || 1, 1);
+    const action = String(body.action || "").trim();
+    const store = loadStore();
+    store.hotel_rooms = (store.hotel_rooms || []).map((room) => {
+      if (room.id !== id) return room;
+      const confirmed = Array.isArray(room.confirmed_indices)
+        ? [...room.confirmed_indices]
+        : [];
+      if (action === "confirm" && !confirmed.includes(roomIndex)) {
+        confirmed.push(roomIndex);
+      } else if (action === "unconfirm") {
+        const idx = confirmed.indexOf(roomIndex);
+        if (idx >= 0) confirmed.splice(idx, 1);
+      }
+      return { ...room, confirmed_indices: confirmed };
+    });
+    saveStore(store);
+    redirect(res, "/admin/hotels");
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/hotel-assign") {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const body = await parseBody(req);
+    const roomId = Number(body.room_id) || 0;
+    const roomIndex = Math.max(Number(body.room_index) || 1, 1);
+    const guestIds = String(body.guest_ids || "")
+      .split(",")
+      .map((id) => Number(id))
+      .filter((id) => id > 0);
+    const guestCounts = {};
+    String(body.guest_counts || "")
+      .split(",")
+      .forEach((pair) => {
+        const [gid, cnt] = pair.split(":").map(Number);
+        if (gid > 0 && cnt > 0) guestCounts[gid] = cnt;
+      });
+    if (!roomId || !guestIds.length) {
+      redirect(res, "/admin/hotels");
+      return;
+    }
+    const store = loadStore();
+    const room = (store.hotel_rooms || []).find((r) => r.id === roomId);
+    if (!room) {
+      redirect(res, "/admin/hotels");
+      return;
+    }
+    if (roomIndex > room.quantity) {
+      redirect(res, "/admin/hotels");
+      return;
+    }
+    guestIds.forEach((guestId) => {
+      store.hotel_assignments =
+        store.hotel_assignments || [];
+      const guest = (store.guests || []).find((g) => g.id === guestId);
+      const raw = guest?.responses?.attendees;
+      const parsed = Number.parseInt(raw, 10);
+      const total = Number.isNaN(parsed) || parsed < 1 ? 1 : parsed;
+      const count = Math.min(Math.max(guestCounts[guestId] || total, 1), total);
+      store.hotel_assignments.push({
+        id: nextId(store, "hotel_assignments"),
+        room_id: roomId,
+        room_index: roomIndex,
+        guest_id: guestId,
+        count
+      });
+    });
+    saveStore(store);
+    redirect(res, "/admin/hotels");
+    return;
+  }
+
+  const assignDeleteMatch = pathname.match(
+    /^\/admin\/hotel-assign\/(\d+)\/delete$/
+  );
+  if (req.method === "POST" && assignDeleteMatch) {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const id = Number(assignDeleteMatch[1]);
+    const store = loadStore();
+    store.hotel_assignments = (store.hotel_assignments || []).filter(
+      (a) => a.id !== id
+    );
+    saveStore(store);
+    redirect(res, "/admin/hotels");
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/invite/collab/logout") {
     destroyTargetInviteCollaboratorSession(req, res);
     redirect(res, "/invite/collab");
@@ -3015,6 +3551,58 @@ const handleRequest = async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && pathname === "/checkin-screen") {
+    const store = loadStore();
+    const { checkedInGuests } = getCheckedInGuests(store);
+    const totalAttendees = (store.guests || []).reduce(
+      (sum, guest) =>
+        sum + getGuestPartySizeFromResponses(guest.responses || {}),
+      0
+    );
+    const checkedInAttendees = checkedInGuests.reduce(
+      (sum, guest) => sum + parsePartySize(guest.checkin?.actual_attendees),
+      0
+    );
+    const baseUrl = getQrBaseUrl(req, store.settings);
+    const checkinUrl = `${baseUrl}/checkin`;
+    sendResponse(
+      res,
+      200,
+      renderCheckinScreen({
+        totalGuests: totalAttendees,
+        checkedInCount: checkedInAttendees,
+        uncheckedCount: Math.max(totalAttendees - checkedInAttendees, 0),
+        checkinUrl
+      })
+    );
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/checkin-stats") {
+    const store = loadStore();
+    const { checkedInGuests } = getCheckedInGuests(store);
+    const totalAttendees = (store.guests || []).reduce(
+      (sum, guest) =>
+        sum + getGuestPartySizeFromResponses(guest.responses || {}),
+      0
+    );
+    const checkedInAttendees = checkedInGuests.reduce(
+      (sum, guest) => sum + parsePartySize(guest.checkin?.actual_attendees),
+      0
+    );
+    sendResponse(
+      res,
+      200,
+      JSON.stringify({
+        totalGuests: totalAttendees,
+        checkedInCount: checkedInAttendees,
+        uncheckedCount: Math.max(totalAttendees - checkedInAttendees, 0)
+      }),
+      "application/json"
+    );
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/checkin") {
     const store = loadStore();
     const invitationFields = getInvitationFields(store);
@@ -3040,6 +3628,7 @@ const handleRequest = async (req, res) => {
     const normalizedLookup = lookupInput.replace(/\s+/g, "");
     const isLikelyPhone = /^\d{6,}$/.test(normalizedLookup);
     const confirmAttending = Boolean(body.confirm_attending);
+    const confirmAttendees = body.confirm_attendees === "1";
     const startNew = body.start_new === "1";
     const newGuest = body.new_guest === "1";
     const selectedGuestId = Number.parseInt(body.selected_guest_id, 10) || 0;
@@ -3153,6 +3742,7 @@ const handleRequest = async (req, res) => {
       store.guests.push(guest);
       const checkinRecord = upsertCheckin(store, guest.id, actualAttendees);
       saveStore(store);
+      const tableNo = guest.table_no ? normalizeTableNo(guest.table_no) : "";
       sendResponse(
         res,
         200,
@@ -3162,9 +3752,11 @@ const handleRequest = async (req, res) => {
           error: null,
           result: {
             name: guest.name,
-            table_no: guest.table_no || "未分配",
+            table_no: tableNo || "未分配",
+            has_table: Boolean(tableNo),
             actual_attendees: actualAttendees,
-            checked_in_at: checkinRecord.checked_in_at
+            checked_in_at: checkinRecord.checked_in_at,
+            already_checked_in: false
           },
           prompt: null,
           formValues,
@@ -3180,24 +3772,46 @@ const handleRequest = async (req, res) => {
       const nameMatches = lookupInput
         ? store.guests.filter((item) => item.name === lookupInput)
         : [];
+      const fuzzyNameMatches = lookupInput
+        ? store.guests.filter((item) => {
+            if (!item.name) return false;
+            const guestName = item.name.replace(/\s+/g, "");
+            const inputName = lookupInput.replace(/\s+/g, "");
+            if (!guestName || !inputName) return false;
+            if (guestName === inputName) return false;
+            return guestName.includes(inputName) || inputName.includes(guestName);
+          })
+        : [];
       const matchMap = new Map();
-      [...phoneMatches, ...nameMatches].forEach((item) => {
-        matchMap.set(item.id, item);
+      [...phoneMatches, ...nameMatches, ...fuzzyNameMatches].forEach((item) => {
+        if (!matchMap.has(item.id)) {
+          matchMap.set(item.id, {
+            ...item,
+            _isFuzzyMatch:
+              !phoneMatches.some((p) => p.id === item.id) &&
+              !nameMatches.some((n) => n.id === item.id)
+          });
+        }
       });
       return Array.from(matchMap.values());
     };
 
-    const submitGuestCheckin = (guest) => {
+    const submitGuestCheckin = (guest, skipNameOverwrite = false) => {
       if (isLikelyPhone && normalizedLookup) {
         guest.phone = normalizedLookup;
-      } else if (lookupInput) {
+      } else if (lookupInput && !skipNameOverwrite) {
         guest.name = lookupInput;
       }
       guest.attending = true;
       syncGuestAttendeesWithCheckin(guest, actualAttendees);
       guest.updated_at = new Date().toISOString();
+      const existingCheckin = (store.checkins || []).find(
+        (c) => c.guest_id === guest.id
+      );
+      const alreadyCheckedIn = Boolean(existingCheckin);
       const checkinRecord = upsertCheckin(store, guest.id, actualAttendees);
       saveStore(store);
+      const tableNo = guest.table_no ? normalizeTableNo(guest.table_no) : "";
       sendResponse(
         res,
         200,
@@ -3207,9 +3821,11 @@ const handleRequest = async (req, res) => {
           error: null,
           result: {
             name: guest.name,
-            table_no: guest.table_no || "未分配",
+            table_no: tableNo || "未分配",
+            has_table: Boolean(tableNo),
             actual_attendees: actualAttendees,
-            checked_in_at: checkinRecord.checked_in_at
+            checked_in_at: checkinRecord.checked_in_at,
+            already_checked_in: alreadyCheckedIn
           },
           prompt: null,
           formValues,
@@ -3260,7 +3876,8 @@ const handleRequest = async (req, res) => {
         );
         return;
       }
-      submitGuestCheckin(selectedGuest);
+      const isFuzzySelection = selectedGuest._isFuzzyMatch === true;
+      submitGuestCheckin(selectedGuest, isFuzzySelection);
       return;
     }
 
@@ -3308,7 +3925,7 @@ const handleRequest = async (req, res) => {
           error: null,
           result: null,
           prompt: {
-            message: "未在请柬登记名单中出现，是否填写错误？若确认为新来宾可继续登记。"
+            message: "未在请柬登记名单中出现，是否填写错误？若确认为新来宾可继续登记。如登记请柬时由其他亲朋代为填写，请尝试使用登记时填写的姓名进行签到。"
           },
           formValues,
           newGuestForm: false
@@ -3317,7 +3934,9 @@ const handleRequest = async (req, res) => {
       return;
     }
 
-    if (uniqueMatches.length > 1) {
+    const hasFuzzyMatch = uniqueMatches.some((item) => item._isFuzzyMatch);
+
+    if (uniqueMatches.length > 1 || hasFuzzyMatch) {
       const disambiguationMatches = uniqueMatches.map((item) => {
         const tableNo = normalizeTableNo(item.table_no);
         const attendees = getStoredAttendeeCount(item);
@@ -3328,9 +3947,13 @@ const handleRequest = async (req, res) => {
           phone_display: maskPhoneForDisambiguation(item.phone || ""),
           meta: `${tableNo ? `桌号 ${tableNo}` : "桌号未分配"} · ${
             attendees ? `登记${attendees}位` : "登记人数未填"
-          }`
+          }`,
+          is_fuzzy: Boolean(item._isFuzzyMatch)
         };
       });
+      const fuzzyTitle = hasFuzzyMatch
+        ? "模糊匹配到来宾信息，请确认"
+        : "匹配到多位来宾，请再确认手机号";
       sendResponse(
         res,
         200,
@@ -3342,7 +3965,9 @@ const handleRequest = async (req, res) => {
           prompt: null,
           disambiguation: {
             lookup: lookupInput,
-            matches: disambiguationMatches
+            matches: disambiguationMatches,
+            fuzzy_match: hasFuzzyMatch,
+            title: fuzzyTitle
           },
           formValues,
           newGuestForm: false
@@ -3351,7 +3976,37 @@ const handleRequest = async (req, res) => {
       return;
     }
 
-    submitGuestCheckin(uniqueMatches[0]);
+    const matchedGuest = uniqueMatches[0];
+    const registeredAttendees = getStoredAttendeeCount(matchedGuest);
+
+    if (
+      registeredAttendees !== null &&
+      actualAttendees !== registeredAttendees &&
+      !confirmAttendees
+    ) {
+      sendResponse(
+        res,
+        200,
+        renderCheckin({
+          settings: store.settings,
+          fields: invitationFields,
+          error: null,
+          result: null,
+          prompt: null,
+          disambiguation: null,
+          attendeeMismatch: {
+            registered: registeredAttendees,
+            actual: actualAttendees,
+            guest_name: matchedGuest.name || lookupInput
+          },
+          formValues,
+          newGuestForm: false
+        })
+      );
+      return;
+    }
+
+    submitGuestCheckin(matchedGuest);
     return;
   }
 

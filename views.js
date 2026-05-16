@@ -1504,9 +1504,11 @@ const adminLayout = (title, body) => `
       <a href="/admin">仪表盘</a>
       <a href="/admin/invitation">请柬设计</a>
       <a href="/admin/guests">来宾管理</a>
+      <a href="/admin/venue">场地布局</a>
       <a href="/admin/checkins">现场签到</a>
       <a href="/admin/seat-cards">席位牌</a>
       <a href="/admin/lottery">现场摇奖</a>
+      <a href="/admin/hotels">住宿管理</a>
       <a href="/admin/ledger">流水</a>
       <a href="/admin/admins">管理员</a>
       <a href="/admin/logout">退出</a>
@@ -1955,6 +1957,7 @@ const renderDashboard = ({
     </div>
     <div class="hero-actions">
       <a class="btn primary" href="/lottery" target="_blank">进入抽奖大屏幕</a>
+      <a class="btn ghost" href="/checkin-screen" target="_blank">进入签到大屏幕</a>
       <a class="btn ghost" href="/admin/checkins">查看签到现场</a>
     </div>
   </div>
@@ -2061,6 +2064,7 @@ const renderDashboard = ({
       <a class="tile" href="/admin/checkins">现场签到管理</a>
       <a class="tile" href="/admin/seat-cards">批量打印席位牌</a>
       <a class="tile" href="/admin/lottery">现场摇奖设置</a>
+      <a class="tile" href="/admin/hotels">住宿管理</a>
     </div>
   </div>
 </section>
@@ -4130,6 +4134,35 @@ const renderGuests = ({ guests, fields, tables, error, errorGuestId }) => {
       </select>`;
   };
 
+  const guestEditData = JSON.stringify(
+    guests.map((g) => ({
+      id: g.id,
+      name: g.name || "",
+      phone: g.phone || "",
+      attendees: g.responses?.attendees || "",
+      attending: g.attending !== false,
+      table_no: g.table_no || "",
+      responses: g.responses || {}
+    }))
+  );
+
+  const guestEditFields = JSON.stringify(
+    fields.map((f) => ({
+      label: f.label || "",
+      field_key: f.field_key || "",
+      field_type: normalizeCustomFieldType(f),
+      required: !!f.required,
+      options: getCustomFieldOptions(f)
+    }))
+  );
+
+  const guestEditTables = JSON.stringify(
+    tableList.map((t) => ({
+      id: t.id,
+      table_no: t.table_no || ""
+    }))
+  );
+
   return adminLayout(
     "来宾管理",
     `
@@ -4182,7 +4215,12 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
       <h1>桌号管理与可视化</h1>
       <p>新增、编辑或删除桌子，并为来宾分配席位。</p>
     </div>
-    <a class="btn primary" href="/admin/tables/print" target="_blank">一键打印全部桌牌</a>
+    <div class="section-actions">
+      <a class="btn primary" href="/admin/tables/print" target="_blank">一键打印全部桌牌</a>
+      <button type="button" class="btn ghost" id="seatingShareBtn">单页分享安排</button>
+      <a class="btn ghost" href="/admin/tables/export">导出桌号</a>
+      <button type="button" class="btn ghost" id="tableImportBtn">导入桌号</button>
+    </div>
   </div>
   <form method="post" action="/admin/tables" class="form-grid">
     <label>
@@ -4269,7 +4307,7 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
                     const hasKids = partySize > 1;
                     const label = escapeHtml(guest.name || "-");
                     const kidBadge = hasKids ? `<span class="kid-badge">携${partySize - 1}人</span>` : "";
-                    return `<span class="table-guest-name">${label}${kidBadge}</span>`;
+                    return `<span class="table-guest-name clickable" onclick="openGuestEditModal(${guest.id})">${label}${kidBadge}</span>`;
                   })
                   .join("")
               : `<span class="muted">暂无来宾</span>`
@@ -4340,10 +4378,189 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
     closeBtn.addEventListener("click", closeModal);
     cancelBtn.addEventListener("click", closeModal);
   })();
+  </script>
+  <div class="table-edit-modal" id="tableImportModal">
+    <div class="modal-backdrop" id="tableImportBackdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>导入桌号数据</h3>
+        <button type="button" class="modal-close" id="tableImportClose">&times;</button>
+      </div>
+      <p style="font-size:13px;color:#6c5c53;margin-bottom:12px;">CSV 格式：桌号,昵称,座位数,宴席偏好,已分配来宾（用/分隔）。已存在的桌号将被更新，来宾将按名字匹配分配。</p>
+      <form method="post" action="/admin/tables/import" id="tableImportForm">
+        <label style="width:100%;">
+          <textarea name="csv_text" id="tableImportCsv" rows="10" style="width:100%;font-family:monospace;font-size:13px;padding:10px;border:1px solid #e3dcd5;border-radius:10px;box-sizing:border-box;" placeholder="桌号,昵称,座位数,宴席偏好,已分配来宾&#10;1,主桌,10,靠舞台,张三/李四&#10;2,亲友桌,8,,王五"></textarea>
+        </label>
+        <div style="display:flex;gap:10px;margin-top:6px;">
+          <button class="btn primary" type="submit">确认导入</button>
+          <button type="button" class="btn ghost" id="tableImportCancel">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var importModal = document.getElementById("tableImportModal");
+    if (!importModal) return;
+    var importBtn = document.getElementById("tableImportBtn");
+    var importBackdrop = document.getElementById("tableImportBackdrop");
+    var importClose = document.getElementById("tableImportClose");
+    var importCancel = document.getElementById("tableImportCancel");
+    function closeImportModal(){ importModal.classList.remove("active"); }
+    if (importBtn) importBtn.addEventListener("click", function(){ importModal.classList.add("active"); });
+    importBackdrop.addEventListener("click", closeImportModal);
+    importClose.addEventListener("click", closeImportModal);
+    importCancel.addEventListener("click", closeImportModal);
+  })();
+  </script>
+  <div class="table-edit-modal" id="seatingShareModal">
+    <div class="modal-backdrop" id="seatingShareBackdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>分享座位安排</h3>
+        <button type="button" class="modal-close" id="seatingShareClose">&times;</button>
+      </div>
+      <p style="font-size:13px;color:#6c5c53;margin-bottom:12px;">以下链接无需登录即可访问，可分享给来宾查看座位安排。</p>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+        <input type="text" id="seatingShareUrl" readonly style="flex:1;padding:10px 12px;border:1px solid #e3dcd5;border-radius:10px;font-size:14px;background:#f9f7f5;" />
+        <button type="button" class="btn primary" id="seatingCopyBtn" style="white-space:nowrap;">复制链接</button>
+      </div>
+      <a class="btn ghost" id="seatingOpenBtn" href="/seating-plan" target="_blank" style="display:inline-block;text-align:center;width:100%;">预览分享页面</a>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var shareModal = document.getElementById("seatingShareModal");
+    if (!shareModal) return;
+    var shareBtn = document.getElementById("seatingShareBtn");
+    var shareBackdrop = document.getElementById("seatingShareBackdrop");
+    var shareClose = document.getElementById("seatingShareClose");
+    var shareUrlInput = document.getElementById("seatingShareUrl");
+    var copyBtn = document.getElementById("seatingCopyBtn");
+    var openBtn = document.getElementById("seatingOpenBtn");
+    function closeShareModal(){ shareModal.classList.remove("active"); }
+    if (shareBtn) shareBtn.addEventListener("click", function(){
+      var url = location.origin + "/seating-plan";
+      shareUrlInput.value = url;
+      if (openBtn) openBtn.href = url;
+      shareModal.classList.add("active");
+      shareUrlInput.select();
+    });
+    if (copyBtn) copyBtn.addEventListener("click", function(){
+      shareUrlInput.select();
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(shareUrlInput.value).then(function(){
+          copyBtn.textContent = "已复制";
+          setTimeout(function(){ copyBtn.textContent = "复制链接"; }, 2000);
+        });
+      } else {
+        document.execCommand("copy");
+        copyBtn.textContent = "已复制";
+        setTimeout(function(){ copyBtn.textContent = "复制链接"; }, 2000);
+      }
+    });
+    shareBackdrop.addEventListener("click", closeShareModal);
+    shareClose.addEventListener("click", closeShareModal);
+
+  var allGuests = ${guestEditData};
+  var allFields = ${guestEditFields};
+  var allTables = ${guestEditTables};
+
+  window.openGuestEditModal = function(guestId) {
+    var guest = allGuests.find(function(g) { return g.id === guestId; });
+    if (!guest) return;
+    document.getElementById('guestEditId').value = guest.id;
+    document.getElementById('guestEditName').value = guest.name;
+    document.getElementById('guestEditPhone').value = guest.phone;
+    document.getElementById('guestEditAttendees').value = guest.attendees || 1;
+    document.getElementById('guestEditAttending').value = guest.attending === false ? 'no' : guest.attending === true ? 'yes' : '';
+    var tableSelect = document.getElementById('guestEditTableNo');
+    tableSelect.innerHTML = '<option value="">未分配</option>';
+    allTables.forEach(function(t) {
+      var opt = document.createElement('option');
+      opt.value = t.table_no;
+      opt.textContent = t.table_no;
+      if (t.table_no === guest.table_no) opt.selected = true;
+      tableSelect.appendChild(opt);
+    });
+    var customContainer = document.getElementById('guestEditCustomFields');
+    customContainer.innerHTML = '';
+    allFields.forEach(function(f) {
+      if (f.field_key === 'attendees') return;
+      var val = guest.responses[f.field_key] || '';
+      if (f.field_type === 'checkbox') {
+        customContainer.innerHTML += '<label class="modal-form-checkbox"><input type="checkbox" name="' + f.field_key + '" ' + (val === 'on' || val === true ? 'checked' : '') + ' /><span>' + f.label + '</span></label>';
+      } else if (f.field_type === 'radio' && f.options && f.options.length) {
+        var radioHtml = '<label>' + f.label + '<div class="radio-group">';
+        f.options.forEach(function(opt) {
+          radioHtml += '<label class="radio-option"><input type="radio" name="' + f.field_key + '" value="' + opt + '" ' + (val === opt ? 'checked' : '') + ' /><span>' + opt + '</span></label>';
+        });
+        radioHtml += '</div></label>';
+        customContainer.innerHTML += radioHtml;
+      } else if (f.field_type === 'textarea') {
+        customContainer.innerHTML += '<label>' + f.label + '<textarea name="' + f.field_key + '">' + (val || '') + '</textarea></label>';
+      } else {
+        customContainer.innerHTML += '<label>' + f.label + '<input type="' + (f.field_type === 'date' ? 'date' : 'text') + '" name="' + f.field_key + '" value="' + (val || '') + '" /></label>';
+      }
+    });
+    document.getElementById('guestEditForm').action = '/admin/guests/' + guest.id + '/update';
+    document.getElementById('guestEditReturnTo').value = 'table-' + guest.table_no;
+    document.getElementById('guestEditModal').classList.add('active');
+  };
+
+  window.closeGuestEditModal = function() {
+    document.getElementById('guestEditModal').classList.remove('active');
+  };
+  })();
   </script>`
       : `<p class="muted">暂无桌子信息，请先新增桌子。</p>`
   }
 </section>
+
+<div class="table-edit-modal" id="guestEditModal">
+  <div class="modal-backdrop" onclick="closeGuestEditModal()"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>编辑来宾信息</h3>
+      <button class="modal-close" onclick="closeGuestEditModal()">×</button>
+    </div>
+    <form method="post" id="guestEditForm" class="modal-form">
+      <input type="hidden" name="guest_id" id="guestEditId" value="" />
+      <input type="hidden" name="return_to" id="guestEditReturnTo" value="" />
+      <label>
+        姓名
+        <input type="text" name="name" id="guestEditName" required />
+      </label>
+      <label>
+        手机号
+        <input type="tel" name="phone" id="guestEditPhone" />
+      </label>
+      <label>
+        出席人数
+        <input type="number" name="attendees" id="guestEditAttendees" min="1" value="1" />
+      </label>
+      <label>
+        出席情况
+        <select name="attending" id="guestEditAttending">
+          <option value="yes">出席</option>
+          <option value="no">不出席</option>
+          <option value="">待定</option>
+        </select>
+      </label>
+      <label>
+        席位号
+        <select name="table_no" id="guestEditTableNo">
+          <option value="">未分配</option>
+        </select>
+      </label>
+      <div id="guestEditCustomFields"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="closeGuestEditModal()">取消</button>
+        <button type="submit" class="btn primary">保存修改</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 ${renderGuestStats({ guests, fields })}
 
@@ -4944,6 +5161,213 @@ ${error ? `<div class="alert">${escapeHtml(error)}</div>` : ""}
   );
 };
 
+const renderSeatingPlan = ({ tables, guests, coupleName }) => {
+  const tableList = (tables || []).slice().sort((a, b) =>
+    String(a.table_no || "").localeCompare(String(b.table_no || ""), "zh-Hans", { numeric: true })
+  );
+  const guestList = guests || [];
+  const getPartySize = (guest) => {
+    const raw = guest?.responses?.attendees;
+    if (!raw) return 1;
+    const p = Number.parseInt(String(raw).trim(), 10);
+    return Number.isNaN(p) || p < 1 ? 1 : p;
+  };
+
+  const tableCards = tableList.map((table) => {
+    const tableNo = String(table.table_no || "").trim();
+    const seatCount = Math.max(Number(table.seats) || 0, 0);
+    const assignedGuests = guestList.filter(
+      (g) => String(g.table_no || "").trim() === tableNo
+    );
+    const assignedCount = assignedGuests.reduce((s, g) => s + getPartySize(g), 0);
+    const fillPct = seatCount > 0 ? Math.min((assignedCount / seatCount) * 100, 100) : 0;
+    const isOver = seatCount > 0 && assignedCount > seatCount;
+    const statusClass = isOver ? "over" : fillPct >= 100 ? "full" : fillPct > 0 ? "partial" : "empty";
+
+    const guestItems = assignedGuests.map((g) => {
+      const ps = getPartySize(g);
+      const badge = ps > 1 ? `<span class="sp-badge">+${ps - 1}</span>` : "";
+      return `<div class="sp-guest">${escapeHtml(g.name || "-")}${badge}</div>`;
+    }).join("");
+
+    return `
+    <div class="sp-card">
+      <div class="sp-card-header">
+        <div class="sp-table-no">桌 ${escapeHtml(tableNo)}</div>
+        ${table.nickname ? `<div class="sp-nickname">${escapeHtml(table.nickname)}</div>` : ""}
+      </div>
+      <div class="sp-capacity">
+        <div class="sp-bar-track">
+          <div class="sp-bar-fill ${statusClass}" style="width:${fillPct.toFixed(1)}%"></div>
+        </div>
+        <div class="sp-cap-text ${statusClass}">${assignedCount} / ${seatCount || "∞"}</div>
+      </div>
+      ${table.preference ? `<div class="sp-pref">${escapeHtml(table.preference)}</div>` : ""}
+      <div class="sp-guests">${guestItems || '<div class="sp-empty">暂无来宾</div>'}</div>
+    </div>`;
+  }).join("");
+
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>座位安排</title>
+  ${renderFaviconLinks()}
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 8mm;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f5f1ed;
+      color: #2f2a26;
+      min-height: 100vh;
+    }
+    .sp-page { max-width: 800px; margin: 0 auto; padding: 24px 16px; }
+    .sp-hero { text-align: center; padding: 32px 0 24px; }
+    .sp-couple {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 28px;
+      font-weight: 700;
+      color: #d4577a;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+    .sp-subtitle { font-size: 15px; color: #9c8f85; }
+    .sp-actions { text-align: center; margin-bottom: 20px; }
+    .sp-actions button {
+      display: inline-block;
+      padding: 10px 28px;
+      border-radius: 10px;
+      font-size: 15px;
+      cursor: pointer;
+      border: none;
+      background: #d4577a;
+      color: #fff;
+    }
+    .sp-actions button:hover { background: #c04a6d; }
+    .sp-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .sp-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+    }
+    .sp-card-header {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .sp-table-no {
+      font-size: 20px;
+      font-weight: 700;
+      color: #2f2a26;
+    }
+    .sp-nickname {
+      font-size: 14px;
+      color: #9c8f85;
+    }
+    .sp-capacity {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .sp-bar-track {
+      flex: 1;
+      height: 8px;
+      background: #f0ebe5;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .sp-bar-fill { height: 100%; border-radius: 4px; }
+    .sp-bar-fill.empty { background: #e5dbd3; }
+    .sp-bar-fill.partial { background: linear-gradient(90deg, #4ade80, #22c55e); }
+    .sp-bar-fill.full { background: #3b82f6; }
+    .sp-bar-fill.over { background: #ef4444; }
+    .sp-cap-text { font-size: 13px; font-weight: 600; white-space: nowrap; }
+    .sp-cap-text.empty { color: #bbb; }
+    .sp-cap-text.partial { color: #22c55e; }
+    .sp-cap-text.full { color: #3b82f6; }
+    .sp-cap-text.over { color: #ef4444; }
+    .sp-pref {
+      display: inline-block;
+      font-size: 12px;
+      background: #f4e7e1;
+      color: #7c6b60;
+      padding: 2px 8px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+    .sp-guests {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .sp-guest {
+      background: #fef3f6;
+      border: 1px solid #f0e2e7;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .sp-badge {
+      font-size: 11px;
+      background: #fff3e0;
+      color: #e65100;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    .sp-empty { color: #ccc; font-size: 13px; }
+    @media print {
+      body { background: #fff; }
+      .sp-actions { display: none !important; }
+      .sp-page { padding: 0; max-width: none; }
+      .sp-hero { padding: 0 0 12px; }
+      .sp-couple { font-size: 22px; }
+      .sp-grid { gap: 8px; grid-template-columns: repeat(3, 1fr); }
+      .sp-card { padding: 10px; border-radius: 8px; box-shadow: none; border: 1px solid #e5dbd3; break-inside: avoid; }
+      .sp-table-no { font-size: 16px; }
+      .sp-guest { font-size: 12px; padding: 2px 6px; }
+    }
+    @media screen and (max-width: 480px) {
+      .sp-page { padding: 16px 10px; }
+      .sp-couple { font-size: 22px; }
+      .sp-grid { grid-template-columns: 1fr; gap: 12px; }
+      .sp-card { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sp-page">
+    <div class="sp-hero">
+      <div class="sp-couple">${escapeHtml(coupleName || "我们的婚礼")}</div>
+      <div class="sp-subtitle">座位安排一览</div>
+    </div>
+    <div class="sp-actions">
+      <button onclick="window.print()">打印座位安排</button>
+    </div>
+    <div class="sp-grid">
+      ${tableCards || '<p style="text-align:center;color:#999;padding:40px;">暂无座位安排</p>'}
+    </div>
+  </div>
+</body>
+</html>`;
+};
+
 const renderTablePrint = ({ tables, guests }) => {
   const tableList = tables || [];
   const guestList = guests || [];
@@ -5274,6 +5698,10 @@ const renderAdminLottery = ({ prizes, winners, settings, guests, checkedInGuests
   return adminLayout(
     "现场摇奖",
     `
+<div style="display:flex;gap:12px;margin-bottom:20px;">
+  <a class="btn primary" href="/lottery" target="_blank" style="font-size:16px;padding:14px 32px;">进入抽奖大屏幕</a>
+  <a class="btn ghost" href="/checkin-screen" target="_blank" style="font-size:16px;padding:14px 32px;">进入签到大屏幕</a>
+</div>
 <section class="card">
   <h1>抽奖模式设置</h1>
   <form method="post" action="/admin/lottery/settings" class="form-grid">
@@ -5320,12 +5748,12 @@ const renderAdminLottery = ({ prizes, winners, settings, guests, checkedInGuests
       <input type="number" name="quantity" min="1" value="1" />
     </label>
     <label>
-      内定请柬名字（逗号分隔，友情内定）
+      友好推荐请柬名字（逗号分隔）
       <input type="text" name="rigged_names" id="rigged_names_input" placeholder="如：张三,李四" />
       ${selectorGuestNames.length ? `<button type="button" class="btn ghost picker-btn" data-target="rigged_names_input" data-source='${JSON.stringify(selectorGuestNames)}'>从名单选择</button>` : ""}
     </label>
     <label>
-      内定号码（逗号分隔，友情内定）
+      友好推荐号码（逗号分隔）
       <input type="text" name="rigged_numbers" placeholder="如：7,18,66" />
     </label>
     <label>
@@ -5348,11 +5776,11 @@ const renderAdminLottery = ({ prizes, winners, settings, guests, checkedInGuests
         <strong>${escapeHtml(prize.name)}</strong>
         <p>数量：${prize.quantity}</p>
         ${prize.rigged_names && prize.rigged_names.length
-          ? `<p style="color:#ff3d81;font-size:13px;">内定名字：${prize.rigged_names.map((n) => escapeHtml(n)).join("、")}</p>`
+          ? `<p style="color:#ff3d81;font-size:13px;">推荐名字：${prize.rigged_names.map((n) => escapeHtml(n)).join("、")}</p>`
           : ""
         }
         ${prize.rigged_numbers && prize.rigged_numbers.length
-          ? `<p style="color:#7c4dff;font-size:13px;">内定号码：${prize.rigged_numbers.join("、")}</p>`
+          ? `<p style="color:#7c4dff;font-size:13px;">推荐号码：${prize.rigged_numbers.join("、")}</p>`
           : ""
         }
         ${prize.excluded_names && prize.excluded_names.length
@@ -5512,8 +5940,13 @@ const renderAdminCheckins = ({
     "现场签到",
     `
 <section class="card">
-  <h1>现场签到二维码</h1>
-  <p>来宾扫码即可进入签到页面。</p>
+  <div class="section-header">
+    <div>
+      <h1>现场签到二维码</h1>
+      <p>来宾扫码即可进入签到页面。</p>
+    </div>
+    <a class="btn primary" href="/checkin-screen" target="_blank">进入签到大屏幕</a>
+  </div>
   <div class="list-item" style="align-items: flex-start; gap: 24px;">
     <div>
       <strong>签到链接</strong>
@@ -6664,7 +7097,8 @@ const renderCheckin = ({
   prompt,
   formValues,
   newGuestForm,
-  disambiguation = null
+  disambiguation = null,
+  attendeeMismatch = null
 }) => {
   const guestFontScale = clampNumber(settings?.guest_font_scale, 1, 2.5, 1.1);
   const festiveTheme = normalizeFestiveTheme(
@@ -6688,12 +7122,19 @@ const renderCheckin = ({
       )
     : [];
   const selectedGuestIdValue = String(formValues?.selected_guest_id || "").trim();
+  const isFuzzyDisambiguation = Boolean(disambiguation?.fuzzy_match);
+  const disambiguationTitle = disambiguation?.title || "匹配到多位来宾，请再确认手机号";
+  const disambiguationDesc = isFuzzyDisambiguation
+    ? `你输入的「${escapeHtml(
+        disambiguation?.lookup || formValues?.lookup || ""
+      )}」可能对应以下登记信息（部分姓名匹配），请确认是否为你本人后选择签到。`
+    : `我们为你匹配到了多位「${escapeHtml(
+        disambiguation?.lookup || formValues?.lookup || ""
+      )}」，请选择对应手机号后继续签到。`;
   const disambiguationHtml = disambiguationMatches.length
     ? `<div class="prompt-card disambiguation-card">
-          <div class="prompt-title">匹配到多位来宾，请再确认手机号</div>
-          <p>我们为你匹配到了多位「${escapeHtml(
-            disambiguation?.lookup || formValues?.lookup || ""
-          )}」，请选择对应手机号后继续签到。</p>
+          <div class="prompt-title">${escapeHtml(disambiguationTitle)}</div>
+          <p>${disambiguationDesc}</p>
           <form method="post" action="/checkin" class="form-stack">
             <input type="hidden" name="lookup" value="${escapeHtml(
               formValues?.lookup || ""
@@ -6708,16 +7149,22 @@ const renderCheckin = ({
                   const isChecked = selectedGuestIdValue
                     ? selectedGuestIdValue === String(item.id || "")
                     : index === 0;
+                  const fuzzyBadge = item.is_fuzzy
+                    ? `<span class="disambiguation-fuzzy-badge">模糊匹配</span>`
+                    : "";
                   return `<label class="disambiguation-option">
                       <input type="radio" name="selected_guest_id" value="${escapeHtml(
                         String(item.id || "")
                       )}" ${isChecked ? "checked" : ""} required />
                       <span class="disambiguation-text">
-                        <span class="disambiguation-main">${escapeHtml(
-                          item.phone_display || "手机号未登记"
+                        <span class="disambiguation-main">${fuzzyBadge}${escapeHtml(
+                          item.name || "姓名未登记"
                         )}</span>
                         <span class="disambiguation-meta">${escapeHtml(
                           item.meta || "请核对手机号后选择"
+                        )}</span>
+                        <span class="disambiguation-sub">${escapeHtml(
+                          item.phone_display || "手机号未登记"
                         )}</span>
                       </span>
                     </label>`;
@@ -6730,9 +7177,36 @@ const renderCheckin = ({
               <button class="btn ghost" type="submit" name="start_new" value="1">都不是我，登记新来宾</button>
             </div>
           </form>
-          <p class="muted">小提示：如发现手机号有误，可请现场工作人员协助。</p>
+          <p class="muted">小提示：如发现信息有误，可请现场工作人员协助。</p>
         </div>`
     : "";
+  const attendeeMismatchHtml =
+    attendeeMismatch && !disambiguationMatches.length
+      ? `<div class="prompt-card attendee-mismatch-card">
+          <div class="prompt-title">出席人数不一致，请确认</div>
+          <p>来宾「${escapeHtml(
+            attendeeMismatch.guest_name || ""
+          )}」登记请柬时填写的出席人数为 <strong>${escapeHtml(
+        String(attendeeMismatch.registered)
+      )}</strong> 位，您当前填写的实际出席人数为 <strong>${escapeHtml(
+        String(attendeeMismatch.actual)
+      )}</strong> 位，两者不一致，请确认是否填写有误。</p>
+          <div class="prompt-actions">
+            <a class="btn ghost" href="/checkin">返回修改</a>
+            <form method="post" action="/checkin">
+              <input type="hidden" name="lookup" value="${escapeHtml(
+                formValues?.lookup || ""
+              )}" />
+              <input type="hidden" name="actual_attendees" value="${escapeHtml(
+                formValues?.actual_attendees || "1"
+              )}" />
+              <input type="hidden" name="confirm_attending" value="on" />
+              <input type="hidden" name="confirm_attendees" value="1" />
+              <button class="btn primary" type="submit">确认按此人数签到</button>
+            </form>
+          </div>
+        </div>`
+      : "";
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -6788,6 +7262,7 @@ const renderCheckin = ({
             : ""
         }
         ${disambiguationHtml}
+        ${attendeeMismatchHtml}
         ${
           prompt
             ? `<div class="prompt-card">
@@ -6857,15 +7332,27 @@ const renderCheckin = ({
         ${
           result
             ? `<div class="result-card">
-              <div class="result-title">签到成功，欢迎光临！</div>
+              ${
+                result.already_checked_in
+                  ? `<div class="result-repeat-notice">温馨提示：您已完成过签到，以下为更新后的签到信息。</div>`
+                  : ""
+              }
+              <div class="result-title">${result.already_checked_in ? "签到信息已更新" : "签到成功，欢迎光临！"}</div>
+              ${
+                result.has_table
+                  ? `<div class="result-table-highlight">
+                      <span class="result-table-label">您的桌号</span>
+                      <span class="result-table-number">${escapeHtml(result.table_no)}</span>
+                    </div>`
+                  : `<div class="result-table-highlight result-table-unassigned">
+                      <span class="result-table-label">桌号</span>
+                      <span class="result-table-number">待分配</span>
+                    </div>`
+              }
               <div class="result-info">
                 <div>
                   <strong>姓名</strong>
                   <span>${escapeHtml(result.name || "-")}</span>
-                </div>
-                <div>
-                  <strong>桌号</strong>
-                  <span>${escapeHtml(result.table_no || "未分配")}</span>
                 </div>
                 <div>
                   <strong>出席人数</strong>
@@ -7054,6 +7541,211 @@ const renderCheckin = ({
   </body>
 </html>
 `;
+};
+
+const renderCheckinScreen = ({ totalGuests, checkedInCount, uncheckedCount, checkinUrl }) => {
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>签到实时大屏</title>
+    ${renderFaviconLinks()}
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600;700&display=swap");
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: linear-gradient(135deg, #0a0015 0%, #1a0a2e 30%, #16213e 70%, #0a0015 100%);
+        color: #fff;
+        overflow: hidden;
+        height: 100vh;
+        width: 100vw;
+      }
+      .screen {
+        display: flex;
+        height: 100vh;
+        width: 100vw;
+        padding: 40px;
+        gap: 40px;
+      }
+      .left-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 40px;
+      }
+      .screen-title {
+        font-family: "Playfair Display", Georgia, serif;
+        font-size: 42px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        text-align: center;
+        background: linear-gradient(90deg, #ff6b9d, #c084fc, #60a5fa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .stats-row {
+        display: flex;
+        gap: 60px;
+        justify-content: center;
+      }
+      .stat-block {
+        text-align: center;
+      }
+      .stat-number {
+        font-size: 96px;
+        font-weight: 700;
+        line-height: 1.1;
+      }
+      .stat-number.registered { color: #60a5fa; }
+      .stat-number.checked-in { color: #4ade80; }
+      .stat-number.unchecked { color: #fb923c; }
+      .stat-label {
+        font-size: 22px;
+        color: rgba(255,255,255,0.6);
+        margin-top: 8px;
+        letter-spacing: 1px;
+      }
+      .progress-bar-container {
+        width: 80%;
+        max-width: 500px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 999px;
+        height: 16px;
+        overflow: hidden;
+      }
+      .progress-bar-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #4ade80, #22c55e);
+        transition: width 0.8s ease;
+      }
+      .progress-text {
+        font-size: 16px;
+        color: rgba(255,255,255,0.5);
+        margin-top: 8px;
+      }
+      .right-panel {
+        width: 420px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        flex-shrink: 0;
+      }
+      .qr-hint {
+        font-size: 32px;
+        font-weight: 700;
+        text-align: center;
+        color: #ff6b9d;
+        letter-spacing: 1px;
+        animation: pulse-hint 2s ease-in-out infinite;
+      }
+      @keyframes pulse-hint {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+      }
+      .qr-wrapper {
+        background: #fff;
+        border-radius: 24px;
+        padding: 24px;
+        box-shadow: 0 0 60px rgba(192, 132, 252, 0.3);
+      }
+      .qr-wrapper img {
+        display: block;
+        width: 340px;
+        height: 340px;
+        border-radius: 12px;
+      }
+      .qr-subtitle {
+        font-size: 16px;
+        color: rgba(255,255,255,0.4);
+        text-align: center;
+      }
+      .nav-links {
+        position: absolute;
+        top: 16px;
+        right: 24px;
+        display: flex;
+        gap: 12px;
+      }
+      .nav-links a {
+        color: rgba(255,255,255,0.4);
+        text-decoration: none;
+        font-size: 14px;
+        padding: 6px 14px;
+        border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 8px;
+        transition: all 0.2s;
+      }
+      .nav-links a:hover {
+        color: #fff;
+        border-color: rgba(255,255,255,0.4);
+        background: rgba(255,255,255,0.05);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="nav-links">
+      <a href="/lottery" target="_blank">抽奖大屏</a>
+      <a href="/admin" target="_blank">管理后台</a>
+    </div>
+    <div class="screen">
+      <div class="left-panel">
+        <div class="screen-title">签到实时动态</div>
+        <div class="stats-row">
+          <div class="stat-block">
+            <div class="stat-number registered">${totalGuests}</div>
+            <div class="stat-label">已登记来宾</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-number checked-in">${checkedInCount}</div>
+            <div class="stat-label">已签到</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-number unchecked">${uncheckedCount}</div>
+            <div class="stat-label">未签到</div>
+          </div>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" style="width:${totalGuests > 0 ? (checkedInCount / totalGuests * 100).toFixed(1) : 0}%"></div>
+        </div>
+        <div class="progress-text">签到率 ${totalGuests > 0 ? (checkedInCount / totalGuests * 100).toFixed(1) : 0}%</div>
+      </div>
+      <div class="right-panel">
+        <div class="qr-hint">还没签到？<br>下方手机扫码</div>
+        <div class="qr-wrapper">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=0&data=${encodeURIComponent(checkinUrl)}" alt="签到二维码" />
+        </div>
+        <div class="qr-subtitle">扫码进入签到页面</div>
+      </div>
+    </div>
+    <script>
+    (function(){
+      function refresh(){
+        fetch("/api/checkin-stats").then(function(r){ return r.json(); }).then(function(data){
+          if (!data) return;
+          var nums = document.querySelectorAll(".stat-number");
+          if (nums[0]) nums[0].textContent = data.totalGuests;
+          if (nums[1]) nums[1].textContent = data.checkedInCount;
+          if (nums[2]) nums[2].textContent = data.uncheckedCount;
+          var fill = document.querySelector(".progress-bar-fill");
+          var text = document.querySelector(".progress-text");
+          if (fill) fill.style.width = (data.totalGuests > 0 ? (data.checkedInCount / data.totalGuests * 100).toFixed(1) : 0) + "%";
+          if (text) text.textContent = "签到率 " + (data.totalGuests > 0 ? (data.checkedInCount / data.totalGuests * 100).toFixed(1) : 0) + "%";
+        }).catch(function(){});
+      }
+      setInterval(refresh, 5000);
+    })();
+    </script>
+  </body>
+</html>`;
 };
 
 const renderLottery = ({ prizes, isAdmin, checkedInGuests, allGuests, winners, settings }) => {
@@ -7541,6 +8233,1024 @@ const renderLottery = ({ prizes, isAdmin, checkedInGuests, allGuests, winners, s
 `;
 };
 
+const renderHotels = ({ hotels, rooms, assignments, guests, error }) => {
+  const hotelList = Array.isArray(hotels) ? hotels : [];
+  const roomList = Array.isArray(rooms) ? rooms : [];
+  const assignList = Array.isArray(assignments) ? assignments : [];
+  const guestList = Array.isArray(guests) ? guests : [];
+
+  const attendingGuests = guestList.filter((g) => g.attending !== false);
+
+  const getGuestName = (guestId) => {
+    const guest = guestList.find((g) => g.id === guestId);
+    return guest ? guest.name : "未知来宾";
+  };
+
+  const getAttendeeCount = (guestId) => {
+    const guest = guestList.find((g) => g.id === guestId);
+    if (!guest) return 1;
+    const raw = guest.responses?.attendees;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isNaN(parsed) || parsed < 1 ? 1 : parsed;
+  };
+
+  const guestRemaining = (guestId) => {
+    const total = getAttendeeCount(guestId);
+    const assigned = assignList
+      .filter((a) => a.guest_id === guestId)
+      .reduce((s, a) => s + (a.count != null ? a.count : getAttendeeCount(a.guest_id)), 0);
+    return Math.max(0, total - assigned);
+  };
+
+  const assignedGuestIds = new Set(
+    attendingGuests.filter((g) => guestRemaining(g.id) < getAttendeeCount(g.id)).map((g) => g.id)
+  );
+  const fullyAssignedGuestIds = new Set(
+    attendingGuests.filter((g) => guestRemaining(g.id) === 0).map((g) => g.id)
+  );
+  const unassignedGuests = attendingGuests.filter(
+    (g) => guestRemaining(g.id) === getAttendeeCount(g.id)
+  );
+  const assignedGuests = attendingGuests.filter((g) =>
+    assignedGuestIds.has(g.id)
+  );
+  const partiallyAssignedGuests = attendingGuests.filter(
+    (g) => { const r = guestRemaining(g.id); return r > 0 && r < getAttendeeCount(g.id); }
+  );
+
+  const getRoomAssignments = (roomId, roomIndex) =>
+    assignList.filter(
+      (a) =>
+        a.room_id === roomId &&
+        (roomIndex == null || a.room_index === roomIndex)
+    );
+
+  const renderRoomInstanceCard = (room, roomIndex, hotelId) => {
+    const roomAssigns = getRoomAssignments(room.id, roomIndex);
+    const getAssignCount = (a) =>
+      a.count != null ? a.count : getAttendeeCount(a.guest_id);
+    const currentOccupancy = roomAssigns.reduce(
+      (sum, a) => sum + getAssignCount(a),
+      0
+    );
+    const occupancyPercent = Math.min(
+      100,
+      Math.round(
+        (currentOccupancy / Math.max(room.max_occupancy, 1)) * 100
+      )
+    );
+    const isFull = currentOccupancy >= room.max_occupancy;
+    const isOver = currentOccupancy > room.max_occupancy;
+    const isConfirmed = Array.isArray(room.confirmed_indices)
+      && room.confirmed_indices.includes(roomIndex);
+    const occupancyClass = isOver
+      ? "room-occupancy-over"
+      : isFull || isConfirmed
+      ? "room-occupancy-full"
+      : occupancyPercent > 70
+      ? "room-occupancy-high"
+      : "";
+    const assignedListHtml = roomAssigns.length
+      ? `<div class="room-guest-list">
+          ${roomAssigns
+            .map(
+              (a) =>
+                `<div class="room-guest-chip">
+                  <span class="room-guest-name">${escapeHtml(
+                    getGuestName(a.guest_id)
+                  )}</span>
+                  <span class="room-guest-count">${getAssignCount(
+                    a
+                  )}人</span>
+                  <form method="post" action="/admin/hotel-assign/${a.id}/delete" style="display:inline">
+                    <button type="submit" class="room-guest-remove" title="取消分配">×</button>
+                  </form>
+                </div>`
+            )
+            .join("")}
+        </div>`
+      : `<div class="room-guest-empty">暂无来宾分配</div>`;
+    const indexLabel =
+      room.quantity > 1 ? ` 第${roomIndex}间` : "";
+    const dateRangeHtml =
+      room.check_in_date && room.check_out_date
+        ? (() => {
+            const inD = new Date(room.check_in_date);
+            const outD = new Date(room.check_out_date);
+            const nights = Math.max(
+              1,
+              Math.round((outD - inD) / (1000 * 60 * 60 * 24))
+            );
+            const fmtDate = (d) =>
+              `${d.getMonth() + 1}月${d.getDate()}日`;
+            return `<div class="room-date-range">
+              <span class="room-date-icon">📅</span>
+              <span>${fmtDate(inD)} - ${fmtDate(outD)}</span>
+              <span class="room-date-nights">${nights}晚</span>
+            </div>`;
+          })()
+        : "";
+    return `<div class="room-card ${occupancyClass}">
+      <div class="room-header">
+        <span class="room-type">${escapeHtml(
+          room.room_type
+        )}${indexLabel}</span>
+        <div class="room-actions">
+          ${
+            roomIndex === 1
+              ? `<button type="button" class="btn-tiny" onclick="openEditRoomModal(${room.id}, ${hotelId}, '${escapeHtml(room.room_type)}', ${room.max_occupancy}, ${room.quantity}, '${escapeHtml(room.price)}', '${escapeHtml(room.booker)}', '${escapeHtml(room.platform)}', '${escapeHtml(room.check_in_date || "")}', '${escapeHtml(room.check_out_date || "")}')">编辑</button>
+                 <form method="post" action="/admin/hotel-rooms/${room.id}/delete" style="display:inline">
+                   <button type="submit" class="btn-tiny btn-tiny-danger" onclick="return confirm('确认删除此预定？（含全部${room.quantity}间房间）')">删除</button>
+                 </form>`
+              : ""
+          }
+        </div>
+      </div>
+      ${dateRangeHtml}
+      <div class="room-info-row">
+        <span>最多${room.max_occupancy}人</span>
+        ${
+          room.price
+            ? `<span class="room-price">${escapeHtml(room.price)}</span>`
+            : ""
+        }
+      </div>
+      <div class="room-occupancy-bar">
+        <div class="room-occupancy-fill" style="width:${occupancyPercent}%"></div>
+      </div>
+      <div class="room-occupancy-text">
+        已入住 ${currentOccupancy} / ${room.max_occupancy} 人
+        ${isOver ? "（⚠️ 超员）" : isFull ? "（已满）" : isConfirmed ? "（✓ 已确认）" : ""}
+      </div>
+      ${assignedListHtml}
+      <div class="room-actions-bottom">
+        ${
+          isOver
+            ? `<button type="button" class="btn-tiny btn-tiny-warn" onclick="openAssignModal(${room.id}, ${roomIndex}, 0)">继续分配（已超员）</button>`
+            : isFull
+            ? `<button type="button" class="btn-tiny btn-tiny-warn" onclick="openAssignModal(${room.id}, ${roomIndex}, 0)">继续分配（已满）</button>`
+            : `<button type="button" class="btn-tiny btn-tiny-primary" onclick="openAssignModal(${room.id}, ${roomIndex}, ${room.max_occupancy - currentOccupancy})">分配来宾</button>`
+        }
+        ${
+          isConfirmed
+            ? `<form method="post" action="/admin/hotel-rooms/${room.id}/confirm" style="display:inline"><input type="hidden" name="room_index" value="${roomIndex}" /><input type="hidden" name="action" value="unconfirm" /><button type="submit" class="btn-tiny btn-tiny-unconfirm">撤销确认</button></form>`
+            : currentOccupancy > 0
+            ? `<form method="post" action="/admin/hotel-rooms/${room.id}/confirm" style="display:inline"><input type="hidden" name="room_index" value="${roomIndex}" /><input type="hidden" name="action" value="confirm" /><button type="submit" class="btn-tiny btn-tiny-confirm">确认完成</button></form>`
+            : ""
+        }
+      </div>
+    </div>`;
+  };
+
+  const hotelCardsHtml = hotelList.length
+    ? hotelList
+        .map((hotel) => {
+          const hotelRooms = roomList.filter(
+            (r) => r.hotel_id === hotel.id
+          );
+          const roomCardsHtml = hotelRooms.length
+            ? hotelRooms
+                .map((room) => {
+                  const instances = [];
+                  for (let i = 1; i <= room.quantity; i += 1) {
+                    instances.push(
+                      renderRoomInstanceCard(room, i, hotel.id)
+                    );
+                  }
+                  const dateInfo =
+                    room.check_in_date && room.check_out_date
+                      ? (() => {
+                          const inD = new Date(room.check_in_date);
+                          const outD = new Date(room.check_out_date);
+                          const nights = Math.max(
+                            1,
+                            Math.round(
+                              (outD - inD) / (1000 * 60 * 60 * 24)
+                            )
+                          );
+                          const fmtDate = (d) =>
+                            `${d.getMonth() + 1}/${d.getDate()}`;
+                          return `${fmtDate(inD)}-${fmtDate(outD)} ${nights}晚`;
+                        })()
+                      : "";
+                  const groupLabel =
+                    room.quantity > 1
+                      ? `<div class="room-group-label">${escapeHtml(room.room_type)} × ${room.quantity}间${
+                          dateInfo ? ` · ${dateInfo}` : ""
+                        }${
+                          room.booker || room.platform
+                            ? `（${escapeHtml(room.booker || "")}${room.booker && room.platform ? " · " : ""}${escapeHtml(room.platform || "")}）`
+                            : ""
+                        }</div>`
+                      : "";
+                  return `<div class="room-group" data-room-type="${escapeHtml(room.room_type)}" data-max-occupancy="${room.max_occupancy}" data-room-id="${room.id}">${groupLabel}${instances.join("")}</div>`;
+                })
+                .join("")
+            : `<div class="hotel-empty">暂无房间预定，点击上方按钮添加</div>`;
+          return `<div class="hotel-card">
+            <div class="hotel-header">
+              <div class="hotel-info">
+                <h3 class="hotel-name">${escapeHtml(hotel.name)}</h3>
+                ${
+                  hotel.location
+                    ? `<span class="hotel-location">${escapeHtml(hotel.location)}</span>`
+                    : ""
+                }
+              </div>
+              <div class="hotel-actions">
+                <button type="button" class="btn-tiny" onclick="openEditHotelModal(${hotel.id}, '${escapeHtml(hotel.name)}', '${escapeHtml(hotel.location)}')">编辑</button>
+                <form method="post" action="/admin/hotels/${hotel.id}/delete" style="display:inline">
+                  <button type="submit" class="btn-tiny btn-tiny-danger" onclick="return confirm('确认删除此酒店？关联的房间和分配将一并删除。')">删除</button>
+                </form>
+              </div>
+            </div>
+            <div class="hotel-toolbar">
+              <button type="button" class="btn btn-ghost-sm" onclick="openAddRoomModal(${hotel.id})">+ 添加房间预定</button>
+              <select class="room-sort-select" onchange="sortHotelRooms(this, ${hotel.id})">
+                <option value="default">默认排序</option>
+                <option value="room_type">按房型排序</option>
+                <option value="occupancy">按入住人数排序</option>
+              </select>
+            </div>
+            <div class="room-grid" id="roomGrid_${hotel.id}">${roomCardsHtml}</div>
+          </div>`;
+        })
+        .join("")
+    : `<div class="hotel-empty">暂无酒店信息，请点击上方按钮添加</div>`;
+
+  const unassignedHtml = (unassignedGuests.length || partiallyAssignedGuests.length)
+    ? [...unassignedGuests, ...partiallyAssignedGuests]
+        .map(
+          (g) => {
+            const rem = guestRemaining(g.id);
+            const total = getAttendeeCount(g.id);
+            const isPartial = rem > 0 && rem < total;
+            return `<div class="guest-chip guest-chip-unassigned${isPartial ? " guest-chip-partial" : ""}">
+              <span>${escapeHtml(g.name || "未知")}</span>
+              <span class="guest-chip-count">${isPartial ? rem + "/" + total : total}人</span>
+              ${isPartial ? '<span class="guest-chip-badge">部分已分配</span>' : ""}
+            </div>`;
+          }
+        )
+        .join("")
+    : `<div class="hotel-empty">所有来宾已分配住宿</div>`;
+
+  const assignedHtml = assignedGuests.length
+    ? assignedGuests
+        .map((g) => {
+          const assigns = assignList.filter((a) => a.guest_id === g.id);
+          if (!assigns.length) return "";
+          const details = assigns.map((a) => {
+            const room = roomList.find((r) => r.id === a.room_id);
+            if (!room) return "";
+            const hotel = hotelList.find((h) => h.id === room.hotel_id);
+            const roomLabel =
+              room.quantity > 1
+                ? `${escapeHtml(room.room_type)} 第${a.room_index || 1}间`
+                : escapeHtml(room.room_type);
+            const cnt = a.count != null ? a.count : getAttendeeCount(a.guest_id);
+            return `${escapeHtml(hotel?.name || "")} · ${roomLabel}（${cnt}人）`;
+          }).filter(Boolean).join("、");
+          const rem = guestRemaining(g.id);
+          return `<div class="guest-chip guest-chip-assigned">
+              <span>${escapeHtml(g.name || "未知")}</span>
+              <span class="guest-chip-detail">${details}</span>
+              ${rem > 0 ? `<span class="guest-chip-badge">余${rem}人未分配</span>` : ""}
+            </div>`;
+        })
+        .join("")
+    : `<div class="hotel-empty">暂无来宾被分配住宿</div>`;
+
+  const guestOptionsJson = JSON.stringify(
+    attendingGuests
+      .filter((g) => guestRemaining(g.id) > 0)
+      .map((g) => ({
+        id: g.id,
+        name: g.name || "未知",
+        total: getAttendeeCount(g.id),
+        remaining: guestRemaining(g.id)
+      }))
+  );
+
+  const totalRooms = roomList.reduce(
+    (sum, room) => sum + room.quantity,
+    0
+  );
+  const totalCost = roomList.reduce((sum, room) => {
+    const numPrice = Number.parseFloat(
+      String(room.price || "").replace(/[^\d.]/g, "")
+    );
+    return sum + (Number.isNaN(numPrice) ? 0 : numPrice * room.quantity);
+  }, 0);
+  const totalCostDisplay =
+    totalCost > 0 ? `¥${totalCost.toLocaleString()}` : "未填写";
+
+  const assignedTotalPeople = attendingGuests.reduce(
+    (sum, g) => sum + getAttendeeCount(g.id) - guestRemaining(g.id),
+    0
+  );
+  const unassignedTotalPeople = attendingGuests.reduce(
+    (sum, g) => sum + guestRemaining(g.id),
+    0
+  );
+  const attendingTotalPeople = attendingGuests.reduce(
+    (sum, g) => sum + getAttendeeCount(g.id),
+    0
+  );
+
+  const overRooms = [];
+  hotelList.forEach((hotel) => {
+    roomList
+      .filter((r) => r.hotel_id === hotel.id)
+      .forEach((room) => {
+        for (let i = 1; i <= room.quantity; i += 1) {
+          const assigns = getRoomAssignments(room.id, i);
+          const occ = assigns.reduce(
+            (s, a) => s + (a.count != null ? a.count : getAttendeeCount(a.guest_id)),
+            0
+          );
+          if (occ > room.max_occupancy) {
+            overRooms.push({
+              hotel: hotel.name,
+              type: room.room_type,
+              index: i,
+              quantity: room.quantity,
+              occ,
+              max: room.max_occupancy
+            });
+          }
+        }
+      });
+  });
+  const overRoomsHtml = overRooms.length
+    ? `<div class="over-rooms-warn">
+        <div class="over-rooms-title">⚠️ 以下房间已超员（可能已安排加床）</div>
+        ${overRooms
+          .map(
+            (r) =>
+              `<div class="over-room-item">${escapeHtml(r.hotel)} · ${escapeHtml(r.type)}${r.quantity > 1 ? ` 第${r.index}间` : ""}：${r.occ}/${r.max}人（超员${r.occ - r.max}人）</div>`
+          )
+          .join("")}
+      </div>`
+    : "";
+
+  return adminLayout(
+    "住宿管理",
+    `
+${error ? `<div class="error-banner">${escapeHtml(error)}</div>` : ""}
+<section class="card">
+  <div class="section-header">
+    <h1>住宿管理</h1>
+    <button type="button" class="btn primary" onclick="openAddHotelModal()">添加酒店</button>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-header">
+    <h2>酒店与房间</h2>
+    <button type="button" class="btn ghost" onclick="printHotels()">导出打印</button>
+  </div>
+  <div class="hotel-list">
+    ${hotelCardsHtml}
+  </div>
+</section>
+
+<section class="card">
+  <h2>住宿分配概况</h2>
+  <div class="assign-stats">
+    <div class="assign-stat">
+      <span class="assign-stat-num">${assignedTotalPeople}</span>
+      <span class="assign-stat-label">已分配住宿（${assignedGuests.length}位）</span>
+    </div>
+    <div class="assign-stat">
+      <span class="assign-stat-num assign-stat-warn">${unassignedTotalPeople}</span>
+      <span class="assign-stat-label">未分配住宿（${unassignedGuests.length}位）</span>
+    </div>
+    <div class="assign-stat">
+      <span class="assign-stat-num">${attendingTotalPeople}</span>
+      <span class="assign-stat-label">应出席总人数（${attendingGuests.length}位）</span>
+    </div>
+    <div class="assign-stat">
+      <span class="assign-stat-num">${totalRooms}</span>
+      <span class="assign-stat-label">预定房间总数</span>
+    </div>
+    <div class="assign-stat">
+      <span class="assign-stat-num">${totalCostDisplay}</span>
+      <span class="assign-stat-label">预定总花费</span>
+    </div>
+  </div>
+  ${overRoomsHtml}
+  <div class="assign-sections">
+    <div class="assign-section">
+      <h3>未分配住宿的来宾</h3>
+      <div class="guest-chip-list">${unassignedHtml}</div>
+    </div>
+    <div class="assign-section">
+      <h3>已分配住宿的来宾</h3>
+      <div class="guest-chip-list">${assignedHtml}</div>
+    </div>
+  </div>
+</section>
+
+<div class="table-edit-modal" id="hotelModal">
+  <div class="modal-backdrop" onclick="closeModal('hotelModal')"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="hotelModalTitle">添加酒店</h3>
+      <button class="modal-close" onclick="closeModal('hotelModal')">×</button>
+    </div>
+    <form method="post" id="hotelForm" class="modal-form">
+      <input type="hidden" name="id" id="hotelFormId" value="" />
+      <label>
+        酒店名称
+        <input type="text" name="name" id="hotelFormName" required />
+      </label>
+      <label>
+        酒店地点
+        <input type="text" name="location" id="hotelFormLocation" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="closeModal('hotelModal')">取消</button>
+        <button type="submit" class="btn primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="table-edit-modal" id="roomModal">
+  <div class="modal-backdrop" onclick="closeModal('roomModal')"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="roomModalTitle">添加房间预定</h3>
+      <button class="modal-close" onclick="closeModal('roomModal')">×</button>
+    </div>
+    <form method="post" id="roomForm" class="modal-form">
+      <input type="hidden" name="id" id="roomFormId" value="" />
+      <input type="hidden" name="hotel_id" id="roomFormHotelId" value="" />
+      <label>
+        房型
+        <input type="text" name="room_type" id="roomFormType" required placeholder="如：大床房、双床房" />
+      </label>
+      <div class="modal-form-row">
+        <label>
+          最大入住人数
+          <input type="number" name="max_occupancy" id="roomFormOccupancy" min="1" value="2" required />
+        </label>
+        <label>
+          预定数量
+          <input type="number" name="quantity" id="roomFormQuantity" min="1" value="1" required />
+        </label>
+      </div>
+      <label>
+        预定价格
+        <input type="text" name="price" id="roomFormPrice" placeholder="如：¥388/晚" />
+      </label>
+      <div class="modal-form-row">
+        <label>
+          预定人
+          <input type="text" name="booker" id="roomFormBooker" placeholder="预定人姓名" />
+        </label>
+        <label>
+          预定平台
+          <input type="text" name="platform" id="roomFormPlatform" placeholder="如：携程" />
+        </label>
+      </div>
+      <div class="modal-form-row">
+        <label>
+          入住日期
+          <input type="date" name="check_in_date" id="roomFormCheckIn" />
+        </label>
+        <label>
+          退房日期
+          <input type="date" name="check_out_date" id="roomFormCheckOut" />
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="closeModal('roomModal')">取消</button>
+        <button type="submit" class="btn primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="table-edit-modal" id="assignModal">
+  <div class="modal-backdrop" onclick="closeModal('assignModal')"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>分配来宾入住</h3>
+      <button class="modal-close" onclick="closeModal('assignModal')">×</button>
+    </div>
+    <form method="post" action="/admin/hotel-assign" class="modal-form">
+      <input type="hidden" name="room_id" id="assignFormRoomId" value="" />
+      <input type="hidden" name="room_index" id="assignFormRoomIndex" value="1" />
+      <div class="assign-form-header" id="assignFormHeader">选择来宾（可多选，剩余 <span id="assignFormSlots">0</span> 个名额）</div>
+      <div class="assign-guest-picker" id="assignGuestPicker"></div>
+      <input type="hidden" name="guest_ids" id="assignFormGuestIds" value="" />
+      <input type="hidden" name="guest_counts" id="assignFormGuestCounts" value="" />
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="closeModal('assignModal')">取消</button>
+        <button type="submit" class="btn primary">确认分配</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  const availableGuests = ${guestOptionsJson};
+  let selectedGuestIds = [];
+
+  window.openAddHotelModal = function() {
+    document.getElementById('hotelModalTitle').textContent = '添加酒店';
+    document.getElementById('hotelFormId').value = '';
+    document.getElementById('hotelFormName').value = '';
+    document.getElementById('hotelFormLocation').value = '';
+    document.getElementById('hotelForm').action = '/admin/hotels';
+    document.getElementById('hotelForm').method = 'post';
+    openModal('hotelModal');
+  };
+
+  window.openEditHotelModal = function(id, name, location) {
+    document.getElementById('hotelModalTitle').textContent = '编辑酒店';
+    document.getElementById('hotelFormId').value = id;
+    document.getElementById('hotelFormName').value = name;
+    document.getElementById('hotelFormLocation').value = location;
+    document.getElementById('hotelForm').action = '/admin/hotels/' + id + '/update';
+    document.getElementById('hotelForm').method = 'post';
+    openModal('hotelModal');
+  };
+
+  window.openAddRoomModal = function(hotelId) {
+    document.getElementById('roomModalTitle').textContent = '添加房间预定';
+    document.getElementById('roomFormId').value = '';
+    document.getElementById('roomFormHotelId').value = hotelId;
+    document.getElementById('roomFormType').value = '';
+    document.getElementById('roomFormOccupancy').value = '2';
+    document.getElementById('roomFormQuantity').value = '1';
+    document.getElementById('roomFormPrice').value = '';
+    document.getElementById('roomFormBooker').value = '';
+    document.getElementById('roomFormPlatform').value = '';
+    document.getElementById('roomFormCheckIn').value = '';
+    document.getElementById('roomFormCheckOut').value = '';
+    document.getElementById('roomForm').action = '/admin/hotel-rooms';
+    document.getElementById('roomForm').method = 'post';
+    openModal('roomModal');
+  };
+
+  window.openEditRoomModal = function(id, hotelId, roomType, maxOcc, qty, price, booker, platform, checkIn, checkOut) {
+    document.getElementById('roomModalTitle').textContent = '编辑房间预定';
+    document.getElementById('roomFormId').value = id;
+    document.getElementById('roomFormHotelId').value = hotelId;
+    document.getElementById('roomFormType').value = roomType;
+    document.getElementById('roomFormOccupancy').value = maxOcc;
+    document.getElementById('roomFormQuantity').value = qty;
+    document.getElementById('roomFormPrice').value = price;
+    document.getElementById('roomFormBooker').value = booker;
+    document.getElementById('roomFormPlatform').value = platform;
+    document.getElementById('roomFormCheckIn').value = checkIn || '';
+    document.getElementById('roomFormCheckOut').value = checkOut || '';
+    document.getElementById('roomForm').action = '/admin/hotel-rooms/' + id + '/update';
+    document.getElementById('roomForm').method = 'post';
+    openModal('roomModal');
+  };
+
+  window.openAssignModal = function(roomId, roomIndex, slots) {
+    document.getElementById('assignFormRoomId').value = roomId;
+    document.getElementById('assignFormRoomIndex').value = roomIndex;
+    var headerEl = document.getElementById('assignFormHeader');
+    if (slots <= 0) {
+      headerEl.innerHTML = '选择来宾（<span class="assign-over-warn">⚠️ 房间已满/超员，添加将超额分配</span>）';
+    } else {
+      headerEl.innerHTML = '选择来宾（可多选，剩余 <span id="assignFormSlots">' + slots + '</span> 个名额）';
+    }
+    selectedGuestIds = [];
+    document.getElementById('assignFormGuestIds').value = '';
+    document.getElementById('assignFormGuestCounts').value = '';
+    renderGuestPicker(slots);
+    openModal('assignModal');
+  };
+
+  function renderGuestPicker(slots) {
+    var container = document.getElementById('assignGuestPicker');
+    if (!availableGuests.length) {
+      container.innerHTML = '<div class="hotel-empty">所有来宾已分配住宿，无可分配来宾</div>';
+      return;
+    }
+    var html = '<div class="assign-guest-list">';
+    availableGuests.forEach(function(g) {
+      var checked = selectedGuestIds.indexOf(g.id) >= 0;
+      html += '<div class="assign-guest-row' + (checked ? ' checked' : '') + '">';
+      html += '<label class="assign-guest-option">';
+      html += '<input type="checkbox" value="' + g.id + '"' + (checked ? ' checked' : '') + ' />';
+      html += '<span>' + g.name + '（共' + g.total + '人';
+      if (g.remaining < g.total) {
+        html += '，已分配' + (g.total - g.remaining) + '人';
+      }
+      html += '）</span>';
+      html += '</label>';
+      if (checked) {
+        html += '<input type="number" class="assign-count-input" data-guest-id="' + g.id + '" min="1" max="' + g.remaining + '" value="' + g.remaining + '" />';
+        html += '<span class="assign-count-label">人</span>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+    container.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+      cb.addEventListener('change', function() {
+        if (this.checked) {
+          selectedGuestIds.push(Number(this.value));
+        } else {
+          selectedGuestIds = selectedGuestIds.filter(function(id) { return id !== Number(cb.value); });
+        }
+        updateAssignForm(slots);
+        renderGuestPicker(slots);
+      });
+    });
+    container.querySelectorAll('.assign-count-input').forEach(function(inp) {
+      inp.addEventListener('change', function() {
+        updateAssignForm(slots);
+      });
+    });
+  }
+
+  function updateAssignForm(slots) {
+    var ids = [];
+    var counts = [];
+    selectedGuestIds.forEach(function(gid) {
+      var inp = document.querySelector('.assign-count-input[data-guest-id="' + gid + '"]');
+      var g = availableGuests.find(function(x) { return x.id === gid; });
+      if (!g) return;
+      var val = inp ? Math.min(Math.max(Number(inp.value) || 1, 1), g.remaining) : g.remaining;
+      if (inp) inp.value = val;
+      ids.push(gid);
+      counts.push(gid + ':' + val);
+    });
+    document.getElementById('assignFormGuestIds').value = ids.join(',');
+    document.getElementById('assignFormGuestCounts').value = counts.join(',');
+  }
+
+  function openModal(id) {
+    document.getElementById(id).classList.add('active');
+  }
+
+  window.closeModal = function(id) {
+    document.getElementById(id).classList.remove('active');
+  };
+
+  window.sortHotelRooms = function(select, hotelId) {
+    var grid = document.getElementById('roomGrid_' + hotelId);
+    if (!grid) return;
+    var groups = Array.prototype.slice.call(grid.querySelectorAll('.room-group'));
+    var mode = select.value;
+    if (mode === 'room_type') {
+      groups.sort(function(a, b) {
+        return a.getAttribute('data-room-type').localeCompare(b.getAttribute('data-room-type'), 'zh-Hans');
+      });
+    } else if (mode === 'occupancy') {
+      groups.sort(function(a, b) {
+        return Number(b.getAttribute('data-max-occupancy')) - Number(a.getAttribute('data-max-occupancy'));
+      });
+    } else {
+      groups.sort(function(a, b) {
+        return Number(a.getAttribute('data-room-id')) - Number(b.getAttribute('data-room-id'));
+      });
+    }
+    groups.forEach(function(g) { grid.appendChild(g); });
+  };
+
+  window.printHotels = function() {
+    var hotels = ${JSON.stringify(hotelList.map(function(h) {
+      var hrs = roomList.filter(function(r) { return r.hotel_id === h.id; });
+      return {
+        name: h.name,
+        location: h.location,
+        rooms: hrs.map(function(r) {
+          var assigns = assignList.filter(function(a) { return a.room_id === r.id; });
+          var instances = [];
+          for (var i = 1; i <= r.quantity; i++) {
+            var guests = assigns.filter(function(a) { return a.room_index === i; })
+              .map(function(a) {
+                var g = guestList.find(function(g) { return g.id === a.guest_id; });
+                var totalCount = 1;
+                if (g) {
+                  var raw = (g.responses || {}).attendees;
+                  var parsed = parseInt(raw, 10);
+                  if (!isNaN(parsed) && parsed >= 1) totalCount = parsed;
+                }
+                var assignCount = a.count != null ? a.count : totalCount;
+                return { name: g ? g.name : '未知', count: assignCount };
+              });
+            instances.push({ index: i, guests: guests });
+          }
+          return {
+            room_type: r.room_type,
+            max_occupancy: r.max_occupancy,
+            quantity: r.quantity,
+            price: r.price || '',
+            booker: r.booker || '',
+            platform: r.platform || '',
+            check_in_date: r.check_in_date || '',
+            check_out_date: r.check_out_date || '',
+            instances: instances
+          };
+        })
+      };
+    }))};
+    var html = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">';
+    html += '<title>住宿信息核对表</title>';
+    html += '<style>';
+    html += 'body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;padding:24px;color:#333;}';
+    html += 'h1{text-align:center;font-size:22px;margin-bottom:20px;}';
+    html += 'h2{font-size:17px;margin:24px 0 10px;padding-bottom:6px;border-bottom:2px solid #c2185b;}';
+    html += '.location{font-size:13px;color:#888;font-weight:400;margin-left:8px;}';
+    html += 'table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;}';
+    html += 'th,td{border:1px solid #ddd;padding:7px 10px;text-align:left;}';
+    html += 'th{background:#f5f0eb;font-weight:600;}';
+    html += '.price{color:#c2185b;font-weight:600;}';
+    html += '.guests{color:#2e7d32;}';
+    html += '.summary{margin-top:20px;padding:12px;background:#f9f7f5;border-radius:10px;font-size:14px;}';
+    html += '.summary span{margin-right:20px;}';
+    html += '@media print{body{padding:0;}h1{font-size:18px;}}';
+    html += '</style></head><body>';
+    html += '<h1>住宿信息核对表</h1>';
+    var totalRooms = 0;
+    var totalCost = 0;
+    hotels.forEach(function(hotel) {
+      html += '<h2>' + hotel.name + '<span class="location">' + (hotel.location || '') + '</span></h2>';
+      if (!hotel.rooms.length) { html += '<p style="color:#999">暂无房间预定</p>'; return; }
+      html += '<table><tr><th>房型</th><th>房间</th><th>入住-退房</th><th>容量</th><th>价格</th><th>预定人/平台</th><th>入住来宾</th></tr>';
+      hotel.rooms.forEach(function(room) {
+        totalRooms += room.quantity;
+        var numPrice = parseFloat((room.price || '').replace(/[^\\d.]/g, ''));
+        if (!isNaN(numPrice)) totalCost += numPrice * room.quantity;
+        var dateRange = room.check_in_date && room.check_out_date ? room.check_in_date + ' ~ ' + room.check_out_date : '-';
+        room.instances.forEach(function(inst) {
+          var label = room.quantity > 1 ? '第' + inst.index + '间' : '-';
+          var guestStr = inst.guests.length ? inst.guests.map(function(g) { return g.name + (g.count > 1 ? '(' + g.count + '人)' : ''); }).join('、') : '<span style="color:#bbb">未分配</span>';
+          var occupancyCount = inst.guests.reduce(function(s, g) { return s + g.count; }, 0);
+          html += '<tr>';
+          html += '<td>' + room.room_type + '</td>';
+          html += '<td>' + label + '</td>';
+          html += '<td>' + dateRange + '</td>';
+          html += '<td>' + occupancyCount + '/' + room.max_occupancy + '人</td>';
+          html += '<td class="price">' + (room.price || '-') + '</td>';
+          html += '<td>' + [room.booker, room.platform].filter(Boolean).join(' · ') || '-' + '</td>';
+          html += '<td class="guests">' + guestStr + '</td>';
+          html += '</tr>';
+        });
+      });
+      html += '</table>';
+    });
+    html += '<div class="summary"><strong>汇总：</strong>';
+    html += '<span>预定房间总数：' + totalRooms + '间</span>';
+    html += '<span>预定总花费：' + (totalCost > 0 ? '¥' + totalCost.toLocaleString() : '未填写') + '</span>';
+    html += '</div>';
+    html += '</body></html>';
+    var w = window.open('', '_blank');
+    w.document.write(html);
+    w.document.close();
+    w.setTimeout(function() { w.print(); }, 300);
+  };
+})();
+</script>
+
+<link rel="stylesheet" href="/public/css/hotels.css" />
+`
+  );
+};
+
+const renderVenue = ({ tables, guests, venue }) => {
+  const tableList = tables || [];
+  const guestList = guests || [];
+  const venueName = venue?.name || "婚礼场地";
+  const tableData = JSON.stringify(
+    tableList.map((t) => {
+      const assigned = guestList.filter(
+        (g) => String(g.table_no || "").trim() === String(t.table_no || "").trim()
+      );
+      return {
+        id: t.id,
+        table_no: t.table_no || "",
+        nickname: t.nickname || "",
+        seats: t.seats || 0,
+        x: t.venue_x != null ? t.venue_x : null,
+        y: t.venue_y != null ? t.venue_y : null,
+        guestNames: assigned.map((g) => g.name || "未知")
+      };
+    })
+  );
+
+  return adminLayout(
+    "场地布局",
+    `
+<link rel="stylesheet" href="/public/css/venue.css" />
+<section class="card">
+  <div class="section-header">
+    <h1>场地布局</h1>
+    <div class="venue-toolbar">
+      <button type="button" class="btn ghost" onclick="openVenueSettingsModal()">场地设置</button>
+      <button type="button" class="btn ghost" onclick="autoArrangeTables()">自动排列</button>
+      <button type="button" class="btn primary" onclick="savePositions()">保存布局</button>
+      <button type="button" class="btn ghost" onclick="printVenue()">打印场地</button>
+    </div>
+  </div>
+  <p class="venue-hint">拖动桌子到目标位置，点击"保存布局"保存。支持鼠标拖拽和触摸操作。</p>
+  <div class="venue-canvas" id="venueCanvas">
+    <div class="venue-title">${escapeHtml(venueName)}</div>
+  </div>
+</section>
+
+<div class="table-edit-modal" id="venueSettingsModal">
+  <div class="modal-backdrop" onclick="closeVenueSettingsModal()"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>场地设置</h3>
+      <button class="modal-close" onclick="closeVenueSettingsModal()">×</button>
+    </div>
+    <form method="post" action="/admin/venue/settings" class="modal-form">
+      <label>
+        场地名称
+        <input type="text" name="name" value="${escapeHtml(venueName)}" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="closeVenueSettingsModal()">取消</button>
+        <button type="submit" class="btn primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  var tables = ${tableData};
+  var canvas = document.getElementById('venueCanvas');
+  var dragTarget = null;
+  var dragOffset = { x: 0, y: 0 };
+
+  function renderTables() {
+    var existing = canvas.querySelectorAll('.venue-table');
+    existing.forEach(function(el) { el.remove(); });
+    tables.forEach(function(t) {
+      var el = document.createElement('div');
+      el.className = 'venue-table';
+      el.setAttribute('data-id', t.id);
+      var guests = t.guestNames.length ? t.guestNames.join('\\u3001') : '暂无来宾';
+      if (t.guestNames.length > 3) {
+        guests = t.guestNames.slice(0, 3).join('\\u3001') + '...';
+      }
+      el.innerHTML = '<div class="venue-table-no">' + t.table_no + '</div>' +
+        '<div class="venue-table-info">' + guests + '</div>';
+      if (t.x != null && t.y != null) {
+        el.style.left = t.x + '%';
+        el.style.top = t.y + '%';
+      } else {
+        var idx = tables.indexOf(t);
+        var cols = Math.ceil(Math.sqrt(tables.length));
+        var col = idx % cols;
+        var row = Math.floor(idx / cols);
+        el.style.left = (10 + col * (80 / cols)) + '%';
+        el.style.top = (15 + row * (70 / Math.ceil(tables.length / cols))) + '%';
+      }
+      el.addEventListener('mousedown', startDrag);
+      el.addEventListener('touchstart', startDragTouch, { passive: false });
+      canvas.appendChild(el);
+    });
+  }
+
+  function startDrag(e) {
+    e.preventDefault();
+    dragTarget = e.currentTarget;
+    var elRect = dragTarget.getBoundingClientRect();
+    dragOffset.x = e.clientX - elRect.left;
+    dragOffset.y = e.clientY - elRect.top;
+    dragTarget.classList.add('dragging');
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('mouseup', stopDrag);
+  }
+
+  function startDragTouch(e) {
+    e.preventDefault();
+    var touch = e.touches[0];
+    dragTarget = e.currentTarget;
+    var elRect = dragTarget.getBoundingClientRect();
+    dragOffset.x = touch.clientX - elRect.left;
+    dragOffset.y = touch.clientY - elRect.top;
+    dragTarget.classList.add('dragging');
+    document.addEventListener('touchmove', onDragTouch, { passive: false });
+    document.addEventListener('touchend', stopDragTouch);
+  }
+
+  function onDrag(e) {
+    if (!dragTarget) return;
+    moveTable(e.clientX, e.clientY);
+  }
+
+  function onDragTouch(e) {
+    e.preventDefault();
+    if (!dragTarget) return;
+    moveTable(e.touches[0].clientX, e.touches[0].clientY);
+  }
+
+  function moveTable(clientX, clientY) {
+    var rect = canvas.getBoundingClientRect();
+    var x = ((clientX - dragOffset.x - rect.left) / rect.width) * 100;
+    var y = ((clientY - dragOffset.y - rect.top) / rect.height) * 100;
+    x = Math.max(2, Math.min(92, x));
+    y = Math.max(5, Math.min(90, y));
+    dragTarget.style.left = x + '%';
+    dragTarget.style.top = y + '%';
+  }
+
+  function stopDrag() {
+    if (dragTarget) dragTarget.classList.remove('dragging');
+    updateTableData();
+    dragTarget = null;
+    document.removeEventListener('mousemove', onDrag);
+    document.removeEventListener('mouseup', stopDrag);
+  }
+
+  function stopDragTouch() {
+    if (dragTarget) dragTarget.classList.remove('dragging');
+    updateTableData();
+    dragTarget = null;
+    document.removeEventListener('touchmove', onDragTouch);
+    document.removeEventListener('touchend', stopDragTouch);
+  }
+
+  function updateTableData() {
+    if (!dragTarget) return;
+    var id = Number(dragTarget.getAttribute('data-id'));
+    var t = tables.find(function(t) { return t.id === id; });
+    if (t) {
+      t.x = parseFloat(dragTarget.style.left);
+      t.y = parseFloat(dragTarget.style.top);
+    }
+  }
+
+  window.savePositions = function() {
+    var positions = tables.map(function(t) {
+      var el = canvas.querySelector('[data-id="' + t.id + '"]');
+      return {
+        id: t.id,
+        x: el ? parseFloat(el.style.left) : (t.x || 0),
+        y: el ? parseFloat(el.style.top) : (t.y || 0)
+      };
+    });
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/admin/venue/save-positions', true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4 && xhr.status === 200) {
+        var msg = document.getElementById('venueSavedMsg');
+        if (msg) msg.remove();
+        msg = document.createElement('div');
+        msg.id = 'venueSavedMsg';
+        msg.className = 'venue-saved-msg';
+        msg.textContent = '布局已保存';
+        canvas.parentElement.insertBefore(msg, canvas);
+        setTimeout(function() { msg.remove(); }, 2000);
+      }
+    };
+    xhr.send('positions=' + encodeURIComponent(JSON.stringify(positions)));
+  };
+
+  window.autoArrangeTables = function() {
+    var cols = Math.ceil(Math.sqrt(tables.length));
+    var rows = Math.ceil(tables.length / cols);
+    canvas.querySelectorAll('.venue-table').forEach(function(el, idx) {
+      var col = idx % cols;
+      var row = Math.floor(idx / cols);
+      el.style.left = (8 + col * (84 / cols)) + '%';
+      el.style.top = (15 + row * (75 / rows)) + '%';
+    });
+    tables.forEach(function(t, idx) {
+      var col = idx % cols;
+      var row = Math.floor(idx / cols);
+      t.x = 8 + col * (84 / cols);
+      t.y = 15 + row * (75 / rows);
+    });
+  };
+
+  window.openVenueSettingsModal = function() {
+    document.getElementById('venueSettingsModal').classList.add('active');
+  };
+
+  window.closeVenueSettingsModal = function() {
+    document.getElementById('venueSettingsModal').classList.remove('active');
+  };
+
+  window.printVenue = function() {
+    window.print();
+  };
+
+  renderTables();
+})();
+</script>
+`
+  );
+};
+
 module.exports = {
   renderLogin,
   renderDashboard,
@@ -7549,11 +9259,15 @@ module.exports = {
   renderTargetInviteCollaborator,
   renderGuests,
   renderLedger,
+  renderSeatingPlan,
   renderTablePrint,
   renderSeatCards,
   renderAdminCheckins,
   renderAdminLottery,
   renderInvite,
   renderCheckin,
-  renderLottery
+  renderCheckinScreen,
+  renderLottery,
+  renderHotels,
+  renderVenue
 };

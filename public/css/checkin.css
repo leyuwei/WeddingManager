@@ -553,6 +553,16 @@ textarea {
   background: linear-gradient(145deg, #fffcf7, #fff7ef);
 }
 
+.attendee-mismatch-card {
+  border-color: #f0c070;
+  background: linear-gradient(145deg, #fffdf5, #fff8e8);
+}
+
+.attendee-mismatch-card strong {
+  color: #b06010;
+  font-size: calc(16px * var(--guest-font-scale));
+}
+
 .disambiguation-list {
   display: flex;
   flex-direction: column;
@@ -590,6 +600,24 @@ textarea {
   color: #3f3128;
 }
 
+.disambiguation-fuzzy-badge {
+  display: inline-block;
+  font-size: calc(10px * var(--guest-font-scale));
+  font-weight: 500;
+  color: #b07d2a;
+  background: #fdf3e0;
+  border: 1px solid #eed9b4;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.disambiguation-sub {
+  font-size: calc(13px * var(--guest-font-scale));
+  color: #6b5d52;
+}
+
 .disambiguation-meta {
   font-size: calc(12px * var(--guest-font-scale));
   color: #8b7a6e;
@@ -602,6 +630,59 @@ textarea {
   margin-bottom: 16px;
   border: 1px solid var(--checkin-result-border);
   animation: panel-rise 0.55s ease both;
+}
+
+.result-repeat-notice {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: calc(13px * var(--guest-font-scale));
+  color: #8b6914;
+  line-height: 1.5;
+}
+
+.result-table-highlight {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #fdf2f4, #fce4ec);
+  border: 2px solid #e8a0b0;
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.result-table-unassigned {
+  background: linear-gradient(135deg, #f5f5f5, #eeeeee);
+  border-color: #ccc;
+}
+
+.result-table-label {
+  font-size: calc(12px * var(--guest-font-scale));
+  color: #9c7a84;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.result-table-unassigned .result-table-label {
+  color: #999;
+}
+
+.result-table-number {
+  font-size: calc(32px * var(--guest-font-scale));
+  font-weight: 800;
+  color: #c2185b;
+  line-height: 1.2;
+}
+
+.result-table-unassigned .result-table-number {
+  color: #999;
+  font-size: calc(20px * var(--guest-font-scale));
+  font-weight: 600;
 }
 
 .souvenir-section {
